@@ -12,20 +12,28 @@ class_tags = {'bicycle': 0,
               'person': 8,
               'sheep': 9}
 
-class LossCalc:
-    def __init__(self, device=torch.device('cpu')):
-        self.device = device
-    
+class LossFunction:
+    def __init__(self, obj_weight, bbox_weight, class_weight, pos_obj_weight):
+        self.positive_weight = positive_weight
+        self.object_weight = object_weight
+        self.bndbox_weight = bndbox_weight
+        self.classify_weight = classify_weight
+        self.pos_obj_weight = pos_obj_weight
     def __call__(self, input, object_holders):
+        logistic_loss = F.binary_cross_entropy_with_logits
+        
         device = input.device
         batchsize = input[0][0]
         
+        # 
         self.target_obj = []
         self.target_bbox = []
         self.target_class = []
+        self.obj_mask = []
         
         for i in range(4):
             self.target_obj.append(torch.zeros((batchsize, 15, 15), dtype=torch.float, device=device))
+            self.obj_mask.append(torch.zeros((batchsize, 15, 15), dype=torch.uint8, device=device))
             self.target_bbox.append(torch.empty((batchsize, 15, 15, 4), dtype=torch.float, device=device))
             self.target_class.append(torch.empty((batchsize, 15, 15), dtype=torch.long, device=device))
         
@@ -33,11 +41,28 @@ class LossCalc:
         
         for idx, objects in enumerate(objects_list):
             true_out[idx] = self._construct_out(objects)
-            
-        objectness_loss_1 = F.binary_cross_entropy_with_logits(input, target_obj_1, reduction='mean', pos_weight=None)
-        boundbox_loss_1 = F.mse_loss(input, target_bbox_1, reduction='mean')
-        classify_loss_1 = F.cross_entropy(input, target, weight=None,ignore_index=-1, reduction='mean')
         
+        obj_loss = []
+        bndbox_loss = []
+        class_loss = []
+        for i in range(4):
+            objectness_loss.append(
+                logistic_loss(input, target_obj_1, reduction='sum', pos_weight=self.pos_obj_weight[i]) / self.pos_obj_weight[i]
+            )
+            boundbox_loss.append(
+                F.mse_loss(input, target_bbox_1, reduction='sum')
+            )
+            classify_loss_1.append(
+                F.cross_entropy(input, target, weight=None,ignore_index=-1, reduction='sum')
+            )
+        
+        obj_loss = sum(obj_loss)
+        bndbox_loss = sum(bndbox_loss)
+        class_loss = sum(class_loss)
+        
+        loss self.obj_weight * obj_loss + self.bbox_weight * bndbox_loss, self.class_weight * class_loss
+        
+        return loss
         
     
     def _construct_target_tensor(objects, idx):
