@@ -35,7 +35,7 @@ class MSNet(nn.Module):
         detection3 = self.detector1(fm3)  # 3x3
         
         fm4 = func.avg_pool2d(x, 16, stride=8)
-        detection4 = self.detector1(fm4)
+        detection4 = self.detector851(fm4)
         
         return (detection1, detection2, detection3, detection4)
 
