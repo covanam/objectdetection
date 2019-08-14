@@ -21,6 +21,10 @@ class Dataset(torch.utils.data.Dataset):
         def __init__(self, tag, bbox):
             self.tag = tag
             self.bbox = bbox  # xmin, ymin, xmax, ymax
+    
+    class _Holder:
+        def __init__(self, data):
+            self.data = data
 
     def __init__(self, file_dir, size=(224, 224), grid_size=32, data_arg=True):
         with open(file_dir) as file:
@@ -60,12 +64,10 @@ class Dataset(torch.utils.data.Dataset):
         # resize image to the expected size:
         im, objects = self.__resize(im, objects, self.size)
 
-        # construct output tensor used to train neural nework
-        im, out = self.__construct_out_tensor(im, objects, self.grid_size)
-
         im = self.__totensor(im)
+        protected_objects = Dataset._Holder(objects)  # protect from pytorch dataloader to concatenate everything together
 
-        return im, out
+        return im, protected_objects
 
     @staticmethod
     def __have_interested_object(objects):
@@ -103,7 +105,7 @@ class Dataset(torch.utils.data.Dataset):
 
     @staticmethod
     def __is_inside(bbox, crop):
-        """check if bbox is still inside a crop, used in __crop"""
+        """helper function for __crop below"""
         left, upper, right, lower = crop
         xmin, ymin, xmax, ymax = bbox
         if left < (xmin + xmax) // 2 < right and upper < (ymin + ymax) // 2 < lower:
@@ -173,54 +175,6 @@ class Dataset(torch.utils.data.Dataset):
             object.bbox = xmin, ymin, xmax, ymax
 
         return im, objects
-
-    @staticmethod
-    def __construct_out_tensor(im, objects, grid_size=32):
-        width, height = im.size
-        out_w = width // grid_size
-        out_h = height // grid_size
-
-        out = torch.zeros(out_w, out_h, dtype=torch.long)
-
-        # assigning ignored grids
-        for object in objects:
-            tag = object.tag
-            tag_index = Dataset.class_tags.get(tag)
-            if tag_index:
-                xmin, ymin, xmax, ymax = object.bbox
-
-                x1 = xmin // grid_size
-                x2 = xmax // grid_size + 1
-                y1 = ymin // grid_size
-                y2 = ymax // grid_size + 1
-
-                if x1 >= out_w:
-                    x1 = out_w - 1
-                if x1 < 0:
-                    x1 = 0
-                if x2 == 0:
-                    x2 = 1
-                if y1 >= out_h:
-                    y1 = out_h - 1
-                if y1 < 0:
-                    y1 = 0
-                if y2 == 0:
-                    y2 = 1
-
-                out[x1:x2, y1:y2] = -1
-
-        # assigning object grids
-        for object in objects:
-            tag = object.tag
-            tag_index = Dataset.class_tags.get(tag)
-            if tag_index:
-                xmin, ymin, xmax, ymax = object.bbox
-                x = (xmin + xmax) // 2 // grid_size
-                y = (ymin + ymax) // 2 // grid_size
-                out[x, y] = tag_index
-
-        return im, out
-
 
 table = {
     -1: 'ignored',
