@@ -26,12 +26,11 @@ class Dataset(torch.utils.data.Dataset):
         def __init__(self, data):
             self.data = data
 
-    def __init__(self, file_dir, size=(224, 224), grid_size=32, data_arg=True):
+    def __init__(self, file_dir, size=(256, 256), data_arg=True):
         with open(file_dir) as file:
             self.im_list = [line.strip() for line in file]
         self.data_arg = data_arg
         self.size = size
-        self.grid_size = grid_size
         self.__preprocess()
 
     def __len__(self):
