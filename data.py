@@ -21,6 +21,11 @@ class Dataset(torch.utils.data.Dataset):
         def __init__(self, tag, bbox):
             self.tag = tag
             self.bbox = bbox  # xmin, ymin, xmax, ymax
+        
+        def area(self):
+            w = self.bbox[2] - self.bbox[0]
+            h = self.bbox[3] - self.bbox[1]
+            return w * h
     
     class _Holder:
         def __init__(self, data):
