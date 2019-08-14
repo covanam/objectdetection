@@ -26,6 +26,16 @@ class Dataset(torch.utils.data.Dataset):
             w = self.bbox[2] - self.bbox[0]
             h = self.bbox[3] - self.bbox[1]
             return w * h
+        
+        def x(self):
+            return (self.bbox[2] - self.bbox[0]) // 2      
+        def y(self):
+            return (self.bbox[3] - self.bbox[1]) // 2
+        def w(self):
+            return self.bbox[2] - self.bbox[0]
+        def h(self):
+            return self.bbox[3] - self.bbox[1]
+        
     
     class _Holder:
         def __init__(self, data):
