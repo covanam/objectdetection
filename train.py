@@ -1,6 +1,106 @@
 import torch
+import torch.nn.functional as F
 
-def Loss(i
+class_tags = {'bicycle': 0,
+              'bus': 1,
+              'car': 2,
+              'cat': 3,
+              'cow': 4,
+              'dog': 5,
+              'horse': 6,
+              'motorbike': 7,
+              'person': 8,
+              'sheep': 9}
+
+class LossCalc:
+    def __init__(self, device=torch.device('cpu')):
+        self.device = device
+    
+    def __call__(self, input, object_holders):
+        device = input.device
+        batchsize = input[0][0]
+        
+        self.target_obj = []
+        self.target_bbox = []
+        self.target_class = []
+        
+        for i in range(4):
+            self.target_obj.append(torch.zeros((batchsize, 15, 15), dtype=torch.float, device=device))
+            self.target_bbox.append(torch.empty((batchsize, 15, 15, 4), dtype=torch.float, device=device))
+            self.target_class.append(torch.empty((batchsize, 15, 15), dtype=torch.long, device=device))
+        
+        objects_list = [holder.data for holder in object_holders]
+        
+        for idx, objects in enumerate(objects_list):
+            true_out[idx] = self._construct_out(objects)
+            
+        objectness_loss_1 = F.binary_cross_entropy_with_logits(input, target_obj_1, reduction='mean', pos_weight=None)
+        boundbox_loss_1 = F.mse_loss(input, target_bbox_1, reduction='mean')
+        classify_loss_1 = F.cross_entropy(input, target, weight=None,ignore_index=-1, reduction='mean')
+        
+        
+    
+    def _construct_target_tensor(objects, idx):
+        for obj in objects:
+            level = self._assign_level(obj)
+            grid_x, grid_y, rx, ry = self._assign_grid(obj, level)
+            
+            x = obj.x()
+            
+            self.target_obj[level][idx, grid_x, grid_y] = 1
+            self.target_class[level][idx, grid_x, grid_y] = self._encode_class(obj.tag)
+            self.target_bbox[level][idx, grid_x, grid_y, 0] = rx
+            self.target_bbox[level][idx, grid_x, grid_y, 1] = ry
+            self.target_bbox[level][idx, grid_x, grid_y, 2] = math.log(obj.w())
+            self.target_bbox[level][idx, grid_x, grid_y, 3] = math.log(obj.h())
+            
+            
+    
+    @staticmethod
+    def _assign_level(obj):
+        area = obj.area()
+        if area < 2048:  # 0 -> 2x32x32
+            return 0
+        if area < 8192:  # 2x32x32 -> 2x64x64
+            return 1
+        if area < 32768:  # 2x64x64 -> 2x128x128
+            return 2
+        return 3  # 2x128x128 -> ...
+    
+    @staticmethod
+    def _assign_grid(obj, level):
+        if level == 3:
+            return 0, 0
+        
+        grid_size = 32 * 2**level
+        grid = 16 // (2**level) - 1  # 15, 7, 3, 1
+        micro_grid = 32 // (level + 1)  # 32 16 8 4
+        
+        
+        grid_x = obj.x() // (256 // micro_grid)
+        grid_x = (grid_x + 1) // 2 - 1
+        if grid_x < 0:
+            grid_x = 0
+        if grid_x > grid - 1:
+            grid_x = grid - 1
+            
+        grid_y = obj.y() // (256 // micro_grid)
+        grid_y = (grid_y + 1) // 2 - 1
+        if grid_y < 0:
+            grid_y = 0
+        if grid_y > grid - 1:
+            grid_y = grid - 1
+        
+        relative_x = obj.x() / (grid_size // 2) - (grid_x + 1)
+        relative_y = obj.y() / (grid_size // 2) - (grid_y + 1)
+        
+        return grid_x, grid_y, relative_x, relative_y
+    
+    @staticmethod
+    def _encode_class(tag):
+        return class_tags[tag]
+        
+        
 class MeanLoss:
     def __init__(self):
         self.count = 0
