@@ -14,51 +14,59 @@ class_tags = {'bicycle': 0,
 
 class LossFunction:
     def __init__(self, obj_weight, bbox_weight, class_weight, pos_obj_weight):
-        self.positive_weight = positive_weight
         self.object_weight = object_weight
         self.bndbox_weight = bndbox_weight
         self.classify_weight = classify_weight
         self.pos_obj_weight = pos_obj_weight
-    def __call__(self, input, object_holders):
-        logistic_loss = F.binary_cross_entropy_with_logits
         
+    def __call__(self, input, object_holders):    
         device = input.device
         batchsize = input[0][0]
         
-        # 
         self.target_obj = []
         self.target_bbox = []
         self.target_class = []
         self.obj_mask = []
         
-        for i in range(4):
-            self.target_obj.append(torch.zeros((batchsize, 15, 15), dtype=torch.float, device=device))
-            self.obj_mask.append(torch.zeros((batchsize, 15, 15), dype=torch.uint8, device=device))
-            self.target_bbox.append(torch.empty((batchsize, 15, 15, 4), dtype=torch.float, device=device))
-            self.target_class.append(torch.empty((batchsize, 15, 15), dtype=torch.long, device=device))
+        for i in range(4):  # 4 levels: 15x15, 7x7, 3x3, 1x1
+            size = 16 // 2**level - 1
+            self.target_obj.append(torch.zeros((batchsize, size, size), dtype=torch.float, device=device))
+            self.obj_mask.append(torch.zeros((batchsize, size, size), dype=torch.uint8, device=device))
+            self.target_bbox.append(torch.empty((batchsize, size, size, 4), dtype=torch.float, device=device))
+            self.target_class.append(torch.empty((batchsize, size, size), dtype=torch.long, device=device))
         
         objects_list = [holder.data for holder in object_holders]
         
         for idx, objects in enumerate(objects_list):
-            true_out[idx] = self._construct_out(objects)
+            true_out[idx] = self._construct_out(objects, idx)
         
-        obj_loss = []
-        bndbox_loss = []
-        class_loss = []
+        obj_loss = torch.zeros(1, dtype=torch.float, device=device)
+        bndbox_loss = torch.zeros(1, dtype=torch.float, device=device)
+        class_loss = torch.zeros(1, dtype=torch.float, device=device)
+        
         for i in range(4):
-            objectness_loss.append(
-                logistic_loss(input, target_obj_1, reduction='sum', pos_weight=self.pos_obj_weight[i]) / self.pos_obj_weight[i]
+            # objectness loss
+            obj_loss += F.binary_cross_entropy_with_logits(
+                input[i][0],
+                self.target_obj[i],
+                reduction='sum', pos_weight=self.pos_obj_weight[i]
+            ) / self.pos_obj_weight[i]
+            
+            # bounding box loss
+            mask = self.obj_mask[i].expand_as(self.target_bbox[i])
+            bndbox_loss += F.mse_loss(
+                input[i][1:5][mask],
+                self.target_bbox[i][mask],
+                reduction='sum'
             )
-            boundbox_loss.append(
-                F.mse_loss(input, target_bbox_1, reduction='sum')
+            
+            # classify loss
+            mask = self.obj_mask[i].expand_as(self.target_class[i])
+            class_loss += F.cross_entropy(
+                input[i][5:],
+                self.target_class[i][mask],
+                weight=None,ignore_index=-1, reduction='sum')
             )
-            classify_loss_1.append(
-                F.cross_entropy(input, target, weight=None,ignore_index=-1, reduction='sum')
-            )
-        
-        obj_loss = sum(obj_loss)
-        bndbox_loss = sum(bndbox_loss)
-        class_loss = sum(class_loss)
         
         loss self.obj_weight * obj_loss + self.bbox_weight * bndbox_loss, self.class_weight * class_loss
         
@@ -72,6 +80,7 @@ class LossFunction:
             
             x = obj.x()
             
+            self.obj_mask[level][idx, grid_x, grid_y] = True
             self.target_obj[level][idx, grid_x, grid_y] = 1
             self.target_class[level][idx, grid_x, grid_y] = self._encode_class(obj.tag)
             self.target_bbox[level][idx, grid_x, grid_y, 0] = rx
