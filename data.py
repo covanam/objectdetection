@@ -6,16 +6,18 @@ import xml.etree.ElementTree as Et
 
 
 class Dataset(torch.utils.data.Dataset):
-    class_tags = {'bicycle': 1,
-                  'bus': 2,
-                  'car': 3,
-                  'cat': 4,
-                  'cow': 5,
-                  'dog': 6,
-                  'horse': 7,
-                  'motorbike': 8,
-                  'person': 9,
-                  'sheep': 10}
+    interested_classes = (
+        'bicycle',
+        'bus',
+        'car',
+        'cat',
+        'cow',
+        'dog',
+        'horse',
+        'motorbike',
+        'person',
+        'sheep'
+    )
 
     class Object:
         def __init__(self, tag, bbox):
@@ -86,7 +88,7 @@ class Dataset(torch.utils.data.Dataset):
     @staticmethod
     def __have_interested_object(objects):
         for obj in objects:
-            if obj.tag in Dataset.class_tags:
+            if obj.tag in Dataset.interested_classes:
                 return True
         return False
 
