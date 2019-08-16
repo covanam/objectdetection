@@ -23,22 +23,17 @@ class LossFunction:
         device = input.device
         batchsize = input[0][0]
         
-        self.target_obj = []
-        self.target_bbox = []
-        self.target_class = []
-        self.obj_mask = []
-        
-        for i in range(4):  # 4 levels: 15x15, 7x7, 3x3, 1x1
-            size = 16 // 2**level - 1
-            self.target_obj.append(torch.zeros((batchsize, size, size), dtype=torch.float, device=device))
-            self.obj_mask.append(torch.zeros((batchsize, size, size), dype=torch.uint8, device=device))
-            self.target_bbox.append(torch.empty((batchsize, size, size, 4), dtype=torch.float, device=device))
-            self.target_class.append(torch.empty((batchsize, size, size), dtype=torch.long, device=device))
+        obj_mask, target_obj, target_bbox, target_class, self._initialize_target_tensor(batchsize)
         
         objects_list = [holder.data for holder in object_holders]
         
-        for idx, objects in enumerate(objects_list):
-            true_out[idx] = self._construct_out(objects, idx)
+        for level, objects in enumerate(objects_list):
+            true_out[idx] = self._construct_out(objects, level)
+        
+        obj_loss = self._calc_obj_loss(input)
+        bbox_loss = self._calc_bbox_loss(input)
+        class_loss = self._calc_class_loss(input)
+        
         
         obj_loss = torch.zeros(1, dtype=torch.float, device=device)
         bndbox_loss = torch.zeros(1, dtype=torch.float, device=device)
@@ -71,9 +66,23 @@ class LossFunction:
         loss self.obj_weight * obj_loss + self.bbox_weight * bndbox_loss, self.class_weight * class_loss
         
         return loss
-        
     
-    def _construct_target_tensor(objects, idx):
+    def _initialize_target_tensor(self, batchsize):
+        target_obj = []
+        target_bbox = []
+        target_class = []
+        obj_mask = []
+        
+        for i in range(4):  # 4 levels: 15x15, 7x7, 3x3, 1x1
+            size = 16 // 2**level - 1
+            target_obj.append(torch.zeros((batchsize, size, size), dtype=torch.float, device=device))
+            obj_mask.append(torch.zeros((batchsize, size, size), dype=torch.uint8, device=device))
+            target_bbox.append(torch.empty((batchsize, size, size, 4), dtype=torch.float, device=device))
+            target_class.append(torch.empty((batchsize, size, size), dtype=torch.long, device=device))
+            
+        return obj_mask, target_obj, target_bbox, target_class        
+    
+    def _construct_target_tensor(self, objects, idx):
         for obj in objects:
             level = self._assign_level(obj)
             grid_x, grid_y, rx, ry = self._assign_grid(obj, level)
@@ -87,8 +96,8 @@ class LossFunction:
             self.target_bbox[level][idx, grid_x, grid_y, 1] = ry
             self.target_bbox[level][idx, grid_x, grid_y, 2] = math.log(obj.w())
             self.target_bbox[level][idx, grid_x, grid_y, 3] = math.log(obj.h())
-            
-            
+    
+    
     
     @staticmethod
     def _assign_level(obj):
