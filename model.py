@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as func
 
+
 def make_layer(din, dout, size):
     padding = (size // 2)
     return torch.nn.Sequential(
@@ -24,23 +25,22 @@ class MSNet(nn.Module):
 
     def forward(self, x):
         features = self.feature_extractor(x)  # 16x16
-        
+
         fm1 = func.avg_pool2d(x, 2, stride=1)
         detection1 = self.detector2(fm1)  # 15x15
-        
+
         fm2 = func.avg_pool2d(x, 4, stride=2)
         detection2 = self.detector1(fm2)  # 7x7
-        
+
         fm3 = func.avg_pool2d(x, 8, stride=4)
         detection3 = self.detector1(fm3)  # 3x3
-        
+
         fm4 = func.avg_pool2d(x, 16, stride=8)
         detection4 = self.detector851(fm4)
-        
+
         return (detection1, detection2, detection3, detection4)
 
 
 if __name__ == '__main__':
-    model = MyNetwork()
+    model = MSNet()
     torch.save(model.state_dict(), 'model/model')
-

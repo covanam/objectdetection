@@ -23,22 +23,24 @@ class Dataset(torch.utils.data.Dataset):
         def __init__(self, tag, bbox):
             self.tag = tag
             self.bbox = bbox  # xmin, ymin, xmax, ymax
-        
+
         def area(self):
             w = self.bbox[2] - self.bbox[0]
             h = self.bbox[3] - self.bbox[1]
             return w * h
-        
+
         def x(self):
-            return (self.bbox[2] - self.bbox[0]) // 2      
+            return (self.bbox[2] + self.bbox[0]) // 2
+
         def y(self):
-            return (self.bbox[3] - self.bbox[1]) // 2
+            return (self.bbox[3] + self.bbox[1]) // 2
+
         def w(self):
             return self.bbox[2] - self.bbox[0]
+
         def h(self):
             return self.bbox[3] - self.bbox[1]
-        
-    
+
     class _Holder:
         def __init__(self, data):
             self.data = data
@@ -81,7 +83,8 @@ class Dataset(torch.utils.data.Dataset):
         im, objects = self.__resize(im, objects, self.size)
 
         im = self.__totensor(im)
-        protected_objects = Dataset._Holder(objects)  # protect from pytorch dataloader to concatenate everything together
+        protected_objects = Dataset._Holder(
+            objects)  # protect from pytorch dataloader to concatenate everything together
 
         return im, protected_objects
 
@@ -114,7 +117,7 @@ class Dataset(torch.utils.data.Dataset):
 
         for object in objects:
             xmin, ymin, xmax, ymax = object.bbox
-            xmin, xmax= width - xmax, width - xmin
+            xmin, xmax = width - xmax, width - xmin
             object.bbox = (xmin, ymin, xmax, ymax)
 
         return im, objects
@@ -192,6 +195,7 @@ class Dataset(torch.utils.data.Dataset):
 
         return im, objects
 
+
 table = {
     -1: 'ignored',
     0: 'ground',
@@ -208,6 +212,7 @@ table = {
 if __name__ == '__main__':
     dataset = Dataset('VOC2012/ImageSets/Main/test.txt', data_arg=False, size=(224, 224))
     from PIL import Image, ImageFont, ImageDraw
+
     fuckkk = torchvision.transforms.ToPILImage()
 
     im, out = dataset[0]
@@ -218,6 +223,6 @@ if __name__ == '__main__':
     fnt = ImageFont.truetype('Pillow/Tests/fonts/FreeMono.ttf', 20)
     for gx in range(out.shape[0]):
         for gy in range(out.shape[1]):
-            draw.text((gx*32, gy*32), str(int(out[gx, gy].item())), font=fnt, fill=(255, 0, 0, 128))
+            draw.text((gx * 32, gy * 32), str(int(out[gx, gy].item())), font=fnt, fill=(255, 0, 0, 128))
 
     im.show()
