@@ -2,17 +2,20 @@ import train
 import data
 import torch
 import model
-
+import winsound
 # setting ---------------------------------------------------
-learning_rate = 1
-momentum = 0
-num_epoch = 1
-batch_size = 2
-print_every = 1
+learning_rate = 5e-3
+momentum = 0.9
+num_epoch = 5
+batch_size = 32
+print_every = 20
 
-device = torch.device('cpu')
+device = torch.device('cuda')
 
-
+with open('trainloss.txt', 'a') as f:
+    f.write('rate:' + str(learning_rate) + '\n')
+with open('valloss.txt', 'a') as f:
+    f.write('rate:' + str(learning_rate) + '\n')
 # network -------------------------------------------------------------------
 net = model.model()#mnasnet.MNASNet(1.0))
 #net.load_state_dict(torch.load('model/model'))
@@ -40,3 +43,6 @@ del solv
 del optim
 
 torch.save(net.state_dict(), 'model/model')
+
+for i in range(1, 10):
+    winsound.Beep(i* 100, 200)

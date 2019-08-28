@@ -3,6 +3,7 @@ import torch
 import torchvision
 import model
 import math
+import data
 table = (
         'bicycle',
         'bus',
@@ -22,21 +23,19 @@ net = model.model()
 #net.load_state_dict(torch.load('model/model'))
 net.eval()
 
-im = Image.open('VOC2012/JPEGImages/2007_000129.jpg')
-im = im.resize((256, 256), Image.ANTIALIAS)
-x = totensor(im).unsqueeze(0)
+im = Image.open('VOC2012/JPEGImages/2008_000036.jpg').resize((256, 256))
+x = torchvision.transform.ToTensor()(im)
 
 out1, out2, out3, out4 = [c[0] for c in net(x)]
 
 draw = ImageDraw.Draw(im)
-fnt = ImageFont.truetype('Pillow/Tests/fonts/FreeMono.ttf', 15)
+fnt = ImageFont.truetype('Pillow/Tests/fonts/arial.ttf', 15)
 print('\nv0')
 for gx in range(15):
     for gy in range(15):
         conf = out1[0:10, gx, gy].max()
         if conf.item() < 0.1:
             continue
-        print('lv1')
         cid = out1[0:10, gx, gy].argmax()
         x = out1[10, gx, gy]
         y = out1[11, gx, gy]
@@ -47,6 +46,7 @@ for gx in range(15):
         w = 32 * math.exp(w)
         h = 32 * math.exp(h)
         tag = table[cid.item()]
+        print(tag)
         draw.rectangle((x - w/2, y - h/2, x + w/2, y + h/2), outline='red')
         draw.text((x-w/2, y-h/2), 'lv1'+tag, font=fnt, fill=(255, 0, 0, 128))
 
@@ -56,7 +56,6 @@ for gx in range(7):
         conf = out2[0:10, gx, gy].max()
         if conf.item() < 0.1:
             continue
-        print('lv1')
         cid = out2[0:10, gx, gy].argmax()
         x = out2[10, gx, gy]
         y = out2[11, gx, gy]
@@ -67,6 +66,7 @@ for gx in range(7):
         w = 64 * math.exp(w)
         h = 64 * math.exp(h)
         tag = table[cid.item()]
+        print(tag)
         draw.rectangle((x - w/2, y - h/2, x + w/2, y + h/2), outline='red')
         draw.text((x-w/2, y-h/2), 'lv2'+tag, font=fnt, fill=(255, 0, 0, 128))
 print('\nv2')
@@ -86,10 +86,11 @@ for gx in range(3):
         w = 128 * math.exp(w)
         h = 128 * math.exp(h)
         tag = table[cid.item()]
-        print(tag, x - w/2, y - h/2, x + w/2, y + h/2)
+        print(tag)
         draw.rectangle((x - w/2, y - h/2, x + w/2, y + h/2), outline='red')
         draw.text((x-w/2, y-h/2), 'lv3'+tag, font=fnt, fill=(255, 0, 0, 128))
 
+print('\nv3')
 for gx in range(1):
     for gy in range(1):
         conf = out4[0:10, gx, gy].max()
@@ -106,6 +107,7 @@ for gx in range(1):
         w = 256 * math.exp(w)
         h = 256 * math.exp(h)
         tag = table[cid.item()]
+        print(tag)
         draw.rectangle((x - w/2, y - h/2, x + w/2, y + h/2), outline='red')
         draw.text((x-w/2, y-h/2), 'lv4'+tag, font=fnt, fill=(255, 0, 0, 128))
 

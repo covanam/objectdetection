@@ -1,5 +1,6 @@
 import torch
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 class_tags = {'bicycle': 0,
               'bus': 1,
@@ -19,13 +20,14 @@ class LossFunction:
 
     def __call__(self, x, target):
         self.device = x[0].device
+        batchsize = x[0].shape[0]
 
         obj_loss = self._calc_obj_loss(x, target)
         bbox_loss = self._calc_bbox_loss(x, target)
 
         loss = obj_loss + bbox_loss
 
-        return loss
+        return loss / batchsize
 
     def _calc_obj_loss(self, x, target):
         obj_loss = torch.zeros(1, dtype=torch.float, device=self.device)
@@ -91,17 +93,20 @@ class Solver:
         self.optim = optim
 
     def train(self, num_epoch=10, print_every=5, batch_size=10, device=torch.device('cpu')):
+        train_loss_history = []
+        val_loss_history = []
         self.model = self.model.to(device)
 
         count = 0
-        train_dataloader = torch.utils.data.DataLoader(self.train_data, batch_size, shuffle=True, num_workers=4)
+        train_dataloader = torch.utils.data.DataLoader(self.train_data, batch_size, shuffle=True, num_workers=0, drop_last=True)
         if self.val_data is not None:
-            val_dataloader = torch.utils.data.DataLoader(self.val_data, 10, shuffle=True, num_workers=4)
+            val_dataloader = torch.utils.data.DataLoader(self.val_data, 20, shuffle=True, num_workers=0)
 
         for e in range(num_epoch):
             print('epoch', e, 'begin training---------------------------')
             self.model.train()
 
+            # traininggggggggggggggggggggggggggggggggggggg
             train_loss = MeanLoss()
             for x, target in train_dataloader:
                 x = x.to(device)
@@ -124,29 +129,38 @@ class Solver:
                 train_loss.add(loss.item())
             train_loss = train_loss.calc()
             print('train_loss:', train_loss)
+            train_loss_history.append(train_loss)
+            with open('trainloss.txt', 'a') as f:
+                f.write(str(train_loss) + '\n')
 
+            # validatinggggggggggggggggggggggggggggggggggggggggggg
             if self.val_data is None:
                 continue
             print('evaluate:')
             self.model.eval()
 
             val_loss = MeanLoss()
-            for x, true_tensor in val_dataloader:
+            for x, target in val_dataloader:
                 x = x.to(device)
                 target = [t.to(device) for t in target]
 
                 # forward path
                 pred = self.model(x)
-                loss = self.loss_fn(pred, true_tensor)
+                loss = self.loss_fn(pred, target)
 
                 loss.backward()
                 self.optim.zero_grad()  # no param update here!
                 self.optim.step()  # to free up space,
 
-                print('/t', loss.item())
+                print('\t', loss.item())
 
                 val_loss.add(loss.item())
             val_loss = val_loss.calc()
             print('val loss:', val_loss)
+            val_loss_history.append(val_loss)
+            with open('valloss.txt', 'a') as f:
+                f.write(str(val_loss) + '\n')
 
+        plt.plot(train_loss_history, 'b', val_loss_history, 'r--')
+        plt.savefig('foo.png')
         self.model = self.model.to(torch.device('cpu'))
