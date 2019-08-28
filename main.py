@@ -14,11 +14,11 @@ device = torch.device('cpu')
 
 
 # network -------------------------------------------------------------------
-net = model.MyNet()#mnasnet.MNASNet(1.0))
-net.load_state_dict(torch.load('model/model'))
+net = model.model()#mnasnet.MNASNet(1.0))
+#net.load_state_dict(torch.load('model/model'))
 # dataset----------------------------------------------------------------------------------
-dataset = data.Dataset('VOC2012/ImageSets/Main/train.txt', data_arg=False, size=(256, 256))
-val_dataset = None  # data.Dataset('VOC2012/ImageSets/Main/val.txt', data_arg=False, size=(224, 224))
+dataset = data.Dataset('VOC2012/ImageSets/Main/train.txt', data_arg=True, size=(256, 256))
+val_dataset = data.Dataset('VOC2012/ImageSets/Main/val.txt', data_arg=False, size=(256, 256))
 
 # training --------------------------------------------------------------------------------------
 optim = torch.optim.SGD(net.parameters(), lr=learning_rate, momentum=momentum)
