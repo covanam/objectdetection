@@ -18,8 +18,8 @@ table = (
 
 totensor = torchvision.transforms.ToTensor()
 
-net = model.MyNet()
-net.load_state_dict(torch.load('model/model'))
+net = model.model()
+#net.load_state_dict(torch.load('model/model'))
 net.eval()
 
 im = Image.open('VOC2012/JPEGImages/2007_000129.jpg')
