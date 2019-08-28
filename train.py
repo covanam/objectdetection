@@ -49,7 +49,7 @@ class LossFunction:
                 neg,
                 torch.zeros_like(neg),
                 reduction='sum'
-            ) * max(1, num_p / num_n_train)  # balanced
+            ) * (1/3)  # balanced
 
         return obj_loss
 
@@ -94,9 +94,9 @@ class Solver:
         self.model = self.model.to(device)
 
         count = 0
-        train_dataloader = torch.utils.data.DataLoader(self.train_data, batch_size, shuffle=False, num_workers=0)
+        train_dataloader = torch.utils.data.DataLoader(self.train_data, batch_size, shuffle=True, num_workers=4)
         if self.val_data is not None:
-            val_dataloader = torch.utils.data.DataLoader(self.val_data, 10, shuffle=True, num_workers=0)
+            val_dataloader = torch.utils.data.DataLoader(self.val_data, 10, shuffle=True, num_workers=4)
 
         for e in range(num_epoch):
             print('epoch', e, 'begin training---------------------------')
@@ -105,9 +105,7 @@ class Solver:
             train_loss = MeanLoss()
             for x, target in train_dataloader:
                 x = x.to(device)
-                #for c in true_tensor:
-                #    for cc in c:
-                #        cc = cc.to(device)
+                target = [t.to(device) for t in target]
 
                 self.optim.zero_grad()
 
@@ -135,7 +133,7 @@ class Solver:
             val_loss = MeanLoss()
             for x, true_tensor in val_dataloader:
                 x = x.to(device)
-                true_tensor = true_tensor.to(device)
+                target = [t.to(device) for t in target]
 
                 # forward path
                 pred = self.model(x)
