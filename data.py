@@ -3,21 +3,22 @@ import random
 import PIL
 import torchvision
 import xml.etree.ElementTree as Et
+import math
 
 
 class Dataset(torch.utils.data.Dataset):
-    interested_classes = (
-        'bicycle',
-        'bus',
-        'car',
-        'cat',
-        'cow',
-        'dog',
-        'horse',
-        'motorbike',
-        'person',
-        'sheep'
-    )
+    interested_classes = {
+        'bicycle': 0,
+        'bus': 1,
+        'car': 2,
+        'cat': 3,
+        'cow': 4,
+        'dog': 5,
+        'horse': 6,
+        'motorbike': 7,
+        'person': 8,
+        'sheep': 9
+    }
 
     class Object:
         def __init__(self, tag, bbox):
@@ -41,7 +42,7 @@ class Dataset(torch.utils.data.Dataset):
         def h(self):
             return self.bbox[3] - self.bbox[1]
 
-    class _Holder:
+    class Holder:
         def __init__(self, data):
             self.data = data
 
@@ -82,11 +83,12 @@ class Dataset(torch.utils.data.Dataset):
         # resize image to the expected size:
         im, objects = self.__resize(im, objects, self.size)
 
+        # convert to tensor to feed to network for training
         im = self.__totensor(im)
-        protected_objects = Dataset._Holder(
-            objects)  # protect from pytorch dataloader to concatenate everything together
 
-        return im, protected_objects
+        target = self._construct_target_tensor(objects)
+
+        return im, target
 
     @staticmethod
     def __have_interested_object(objects):
@@ -144,9 +146,9 @@ class Dataset(torch.utils.data.Dataset):
         im = im.crop((left, upper, right, lower))
 
         objects = [obj for obj in objects if Dataset.__is_inside(obj.bbox, (left, upper, right, lower))]
-        for object in objects:
-            xmin, ymin, xmax, ymax = object.bbox
-            object.bbox = xmin - left, ymin - upper, xmax - left, ymax - upper
+        for obj in objects:
+            xmin, ymin, xmax, ymax = obj.bbox
+            obj.bbox = xmin - left, ymin - upper, xmax - left, ymax - upper
 
         return im, objects
 
@@ -166,6 +168,8 @@ class Dataset(torch.utils.data.Dataset):
         objects = []
         for obj in root.findall('object'):
             tag = obj.find('name').text
+            if tag not in Dataset.interested_classes:
+                continue
             bndbox = obj.find('bndbox')
             bbox = (int(bndbox.find('xmin').text),
                     int(bndbox.find('ymin').text),
@@ -177,7 +181,6 @@ class Dataset(torch.utils.data.Dataset):
 
     # image processing before feeding to network
     __totensor = torchvision.transforms.ToTensor()
-
     @staticmethod
     def __resize(im, objects, size):
         scale_x = size[0] / im.size[0]
@@ -185,44 +188,184 @@ class Dataset(torch.utils.data.Dataset):
 
         im = im.resize(size, PIL.Image.ANTIALIAS)
 
-        for object in objects:
-            xmin, ymin, xmax, ymax = object.bbox
+        for obj in objects:
+            xmin, ymin, xmax, ymax = obj.bbox
             xmin = int(xmin * scale_x)
             ymin = int(ymin * scale_y)
             xmax = int(xmax * scale_x)
             ymax = int(ymax * scale_y)
-            object.bbox = xmin, ymin, xmax, ymax
+            obj.bbox = xmin, ymin, xmax, ymax
 
         return im, objects
 
+    def _construct_target_tensor(self, objects):
+        target = []
 
-table = {
-    -1: 'ignored',
-    0: 'ground',
-    1: 'bicycle',
-    2: 'bus',
-    3: 'car',
-    4: 'cat',
-    5: 'cow',
-    6: 'dog',
-    7: 'horse',
-    8: 'motorbike',
-    9: 'person',
-    10: 'sheep'}
-if __name__ == '__main__':
-    dataset = Dataset('VOC2012/ImageSets/Main/test.txt', data_arg=False, size=(224, 224))
-    from PIL import Image, ImageFont, ImageDraw
+        for level in range(4):  # 4 levels: 15x15, 7x7, 3x3, 1x1
+            size = 16 // 2 ** level - 1
+            target.append(torch.zeros((15, size, size), dtype=torch.float))
 
-    fuckkk = torchvision.transforms.ToPILImage()
+        for obj in objects:
+            self._assign_ignore_zone(obj, target)
 
-    im, out = dataset[0]
+        for obj in objects:
+            self._assign_obj(obj, target)
 
-    im = fuckkk(im)
+        self._finalize_target_tensor(target)
 
-    draw = ImageDraw.Draw(im)
-    fnt = ImageFont.truetype('Pillow/Tests/fonts/FreeMono.ttf', 20)
-    for gx in range(out.shape[0]):
-        for gy in range(out.shape[1]):
-            draw.text((gx * 32, gy * 32), str(int(out[gx, gy].item())), font=fnt, fill=(255, 0, 0, 128))
+        return target
 
-    im.show()
+    def _assign_ignore_zone(self, obj, target):
+        level, sub_level = self._assign_level(obj)
+        tag_id = self._encode_class(obj.tag)
+        gx, gy = self._assign_grid(obj, level)
+        grid = 16 // 2**level - 1  # 15 7 3 1
+
+        for ix in range(max(0, gx-1), min(grid, gx+2)):
+            for iy in range(max(0, gy-1), min(grid, gy+2)):
+                if self._iou(obj.bbox, self._grid_bbox(ix, iy, level)) > 0:
+                    target[level][tag_id, ix, iy] = -1
+
+        if sub_level != -1:
+            gx, gy = self._assign_grid(obj, sub_level)
+            target[sub_level][tag_id, gx, gy] = -1
+
+    @staticmethod
+    def _grid_bbox(gx, gy, level):
+        grid_size = 32 * 2**level
+        xmin = (grid_size // 2) * (gx + 1)
+        ymin = (grid_size // 2) * (gy + 1)
+        xmax = xmin + grid_size
+        ymax = ymin + grid_size
+
+        return xmin, ymin, xmax, ymax
+
+    @staticmethod
+    def _iou(bbox1, bbox2):
+        x_left = max(bbox1[0], bbox2[0])
+        y_top = max(bbox1[1], bbox2[1])
+        x_right = min(bbox1[2], bbox2[2])
+        y_bottom = min(bbox1[3], bbox2[3])
+
+        if x_right < x_left or y_bottom < y_top:
+            return 0.0
+
+        intersection_area = (x_right - x_left) * (y_bottom - y_top)
+
+        bb1_area = (bbox1[2] - bbox1[0]) * (bbox1[3] - bbox1[1])
+        bb2_area = (bbox2[2] - bbox2[0]) * (bbox2[3] - bbox2[1])
+
+        iou = intersection_area / (bb1_area + bb2_area - intersection_area)
+
+        return iou
+
+    def _assign_obj(self, obj, target):
+        level = self._assign_level(obj)[0]
+        tag_id = self._encode_class(obj.tag)
+
+        grid_x, grid_y = self._assign_grid(obj, level)
+
+        if target[level][14, grid_x, grid_y].item() == 0:  # no object reside here, nice!
+            target[level][10, grid_x, grid_y] = obj.bbox[0]
+            target[level][11, grid_x, grid_y] = obj.bbox[1]
+            target[level][12, grid_x, grid_y] = obj.bbox[2]
+            target[level][13, grid_x, grid_y] = obj.bbox[3]
+            target[level][14, grid_x, grid_y] = 1  # mark as occupied
+        else:  # already have an object
+            target[level][10, grid_x, grid_y] = min(target[level][10, grid_x, grid_y].item(), obj.bbox[0])
+            target[level][11, grid_x, grid_y] = min(target[level][11, grid_x, grid_y].item(), obj.bbox[1])
+            target[level][12, grid_x, grid_y] = max(target[level][12, grid_x, grid_y].item(), obj.bbox[2])
+            target[level][13, grid_x, grid_y] = max(target[level][13, grid_x, grid_y].item(), obj.bbox[3])
+
+        target[level][tag_id, grid_x, grid_y] = 1
+
+    def _finalize_target_tensor(self, target):
+        for i in range(4):
+            grid_size = 32 * 2**i
+            for gx in range(16 // 2**i - 1):
+                for gy in range(16 // 2**i - 1):
+                    if target[i][14, gx, gy] == 0:
+                        continue
+                    xmin = target[i][10, gx, gy].item()
+                    ymin = target[i][11, gx, gy].item()
+                    xmax = target[i][12, gx, gy].item()
+                    ymax = target[i][13, gx, gy].item()
+
+                    if xmin < 0: xmin = 0
+                    if xmax > 256: xmax = 256
+                    if ymin < 0: ymin = 0
+                    if ymax > 256: ymax = 256
+
+                    x = (xmin + xmax) / 2
+                    y = (ymin + ymax) / 2
+                    w = xmax - xmin
+                    h = ymax - ymin
+
+                    rx, ry = self._cal_relative_loc(gx, gy, x, y, i)
+
+                    target[i][10, gx, gy] = rx
+                    target[i][11, gx, gy] = ry
+                    target[i][12, gx, gy] = math.log(w / grid_size)
+                    target[i][13, gx, gy] = math.log(h / grid_size)
+
+    @staticmethod
+    def _assign_level(obj):
+        area = obj.area()
+        if area < 2048:  # 0 -> 2x32x32
+            if area > 1536:
+                return 0, 1
+            else:
+                return 0, -1
+
+        if area < 8192:  # 2x32x32 -> 2x64x64
+            if area > 6144:
+                return 1, 2
+            if area < 3072:
+                return 1, 0
+            return 1, -1
+
+        if area < 32768:  # 2x64x64 -> 2x128x128
+            if area > 24576:
+                return 2, 3
+            if area < 12288:
+                return 2, 1
+            return 2, -1
+
+        if area < 49152:
+            return 3, 2
+        return 3, -1
+
+    @staticmethod
+    def _assign_grid(obj, level):
+        if level == 3:
+            return 0, 0
+        grid = 16 // (2 ** level) - 1  # 15, 7, 3, 1
+        micro_grid = 32 // 2**level  # 32 16 8 4
+
+        grid_x = obj.x() // (256 // micro_grid)
+        grid_x = (grid_x + 1) // 2 - 1
+        if grid_x < 0:
+            grid_x = 0
+        if grid_x > grid - 1:
+            grid_x = grid - 1
+
+        grid_y = obj.y() // (256 // micro_grid)
+        grid_y = (grid_y + 1) // 2 - 1
+        if grid_y < 0:
+            grid_y = 0
+        if grid_y > grid - 1:
+            grid_y = grid - 1
+
+        return grid_x, grid_y
+
+    @staticmethod
+    def _cal_relative_loc(grid_x, grid_y, x, y, level):
+        grid_size = 32 * 2 ** level
+        relative_x = x / (grid_size / 2) - (grid_x + 1)
+        relative_y = y / (grid_size / 2) - (grid_y + 1)
+
+        return relative_x, relative_y
+
+    @staticmethod
+    def _encode_class(tag):
+        return Dataset.interested_classes[tag]

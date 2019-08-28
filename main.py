@@ -1,61 +1,29 @@
 import train
-import torchvision
 import data
 import torch
 import model
 
 # setting ---------------------------------------------------
-learning_rate = 1e-4
-momentum = 0.9
+learning_rate = 1
+momentum = 0
 num_epoch = 1
-batch_size = 50
-print_every = 10
+batch_size = 2
+print_every = 1
 
-device = torch.device('cuda')
-ground_weight = 0.1
+device = torch.device('cpu')
 
 
 # network -------------------------------------------------------------------
-class Net(torch.nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.classifier = torch.nn.Conv2d(512, 11, 1, padding=0, stride=1, bias=True) 
-    def forward(self, x):
-        x = self.features(x)
-        x = self.classifier(x)
-        return x
-
-origin_net = torchvision.models.vgg16(False)
-
-net = Net()
-net.features = origin_net.features
-
+net = model.MyNet()#mnasnet.MNASNet(1.0))
 net.load_state_dict(torch.load('model/model'))
-
-net = net.to(device)
-
-del origin_net
-
-
-#net = model.MyNetwork()
-#net.load_state_dict(torch.load('model/model'))
-
-
-
 # dataset----------------------------------------------------------------------------------
-dataset = data.Dataset('VOC2012/ImageSets/Main/train.txt', data_arg=True, size=(224, 224))
-val_dataset = data.Dataset('VOC2012/ImageSets/Main/val.txt', data_arg=False, size=(224, 224))
-
+dataset = data.Dataset('VOC2012/ImageSets/Main/train.txt', data_arg=False, size=(256, 256))
+val_dataset = None  # data.Dataset('VOC2012/ImageSets/Main/val.txt', data_arg=False, size=(224, 224))
 
 # training --------------------------------------------------------------------------------------
 optim = torch.optim.SGD(net.parameters(), lr=learning_rate, momentum=momentum)
 
-weight = torch.tensor((ground_weight, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1), dtype=torch.float).to(device)
-loss_fn = torch.nn.CrossEntropyLoss(
-    weight=weight,
-    ignore_index=-1,
-    reduction='mean'
-)
+loss_fn = train.LossFunction()
 
 solv = train.Solver(
     model=net,
