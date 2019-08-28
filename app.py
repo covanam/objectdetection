@@ -26,7 +26,7 @@ im = Image.open('VOC2012/JPEGImages/2007_000129.jpg')
 im = im.resize((256, 256), Image.ANTIALIAS)
 x = totensor(im).unsqueeze(0)
 
-out1, out2, out3, out4 = net.bias1[0], net.bias2[0], net.bias3[0], net.bias4[0]
+out1, out2, out3, out4 = [c[0] for c in net(x)]
 
 draw = ImageDraw.Draw(im)
 fnt = ImageFont.truetype('Pillow/Tests/fonts/FreeMono.ttf', 15)
