@@ -70,6 +70,10 @@ class Dataset(torch.utils.data.Dataset):
         if self.data_arg:
             im = self.__colorjitter(im)
 
+            god_will = random.randrange(2)
+            if god_will:
+                im = self.__pad(im)
+
             # 50% chance to flip image
             god_will = random.randrange(2)
             if god_will:
@@ -152,7 +156,14 @@ class Dataset(torch.utils.data.Dataset):
 
         return im, objects
 
-    # file processing
+    @staticmethod
+    def __pad(im):
+        new_size = max(im.size)
+        pad_color = random.randrange(256), random.randrange(256), random.randrange(256)
+        padded_im = PIL.Image.new('RGB', (new_size, new_size), pad_color)
+        padded_im.paste(im, im.getbbox())
+
+        return padded_im
 
     @staticmethod
     def __im_path(im_name):
