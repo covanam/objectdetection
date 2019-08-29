@@ -37,7 +37,7 @@ class LossFunction:
 
             num_p = pos.shape[0]
             num_n = neg.shape[0]
-            num_n_train = min(max(3 * num_p, 1), num_n)
+            num_n_train = min(3 * num_p, num_n)
 
             obj_loss += F.binary_cross_entropy_with_logits(
                 pos,
@@ -93,14 +93,15 @@ class Solver:
         self.optim = optim
 
     def train(self, num_epoch=10, print_every=5, batch_size=10, device=torch.device('cpu')):
+        count = 0
+
         train_loss_history = []
         val_loss_history = []
         self.model = self.model.to(device)
 
-        count = 0
-        train_dataloader = torch.utils.data.DataLoader(self.train_data, batch_size, shuffle=True, num_workers=0, drop_last=True)
+        train_dataloader = torch.utils.data.DataLoader(self.train_data, batch_size, shuffle=True, num_workers=4, drop_last=True, pin_memory=True)
         if self.val_data is not None:
-            val_dataloader = torch.utils.data.DataLoader(self.val_data, 20, shuffle=True, num_workers=0)
+            val_dataloader = torch.utils.data.DataLoader(self.val_data, 20, shuffle=True, num_workers=4, pin_memory=True)
 
         for e in range(num_epoch):
             print('epoch', e, 'begin training---------------------------')
@@ -118,14 +119,13 @@ class Solver:
                 pred = self.model(x)
                 loss = self.loss_fn(pred, target)
 
-                # print out the accuracy
-                if count % print_every == 0:
-                    print('\t', loss.item())
+                #if count % print_every == 0:
+                #    print(loss.item())
+                #count += 1
 
                 loss.backward()
                 self.optim.step()
 
-                count += 1
                 train_loss.add(loss.item())
             train_loss = train_loss.calc()
             print('train_loss:', train_loss)
@@ -151,8 +151,6 @@ class Solver:
                 loss.backward()
                 self.optim.zero_grad()  # no param update here!
                 self.optim.step()  # to free up space,
-
-                print('\t', loss.item())
 
                 val_loss.add(loss.item())
             val_loss = val_loss.calc()

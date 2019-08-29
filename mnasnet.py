@@ -105,15 +105,11 @@ class MNASNet(torch.nn.Module):
             nn.ReLU(inplace=True),
         ]
         self.layers = nn.Sequential(*layers)
-        self.classifier = nn.Sequential(nn.Dropout(p=dropout, inplace=True),
-                                        nn.Linear(1280, num_classes))
+
         self._initialize_weights()
 
     def forward(self, x):
-        x = self.layers(x)
-        # Equivalent to global avgpool and removing H and W dimensions.
-        x = x.mean([2, 3])
-        return self.classifier(x)
+        return self.layers(x)
 
     def _initialize_weights(self):
         for m in self.modules():

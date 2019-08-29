@@ -61,7 +61,7 @@ class Dataset(torch.utils.data.Dataset):
 
         # read image
         im = PIL.Image.open(self.__im_path(im_name))
-        im.load()
+        im = im.convert('RGB')
 
         # read objects
         objects = self.__xml_parse(self.__xml_path(im_name))
@@ -161,17 +161,17 @@ class Dataset(torch.utils.data.Dataset):
         new_size = max(im.size)
         pad_color = random.randrange(256), random.randrange(256), random.randrange(256)
         padded_im = PIL.Image.new('RGB', (new_size, new_size), pad_color)
-        padded_im.paste(im, im.getbbox())
+        padded_im.paste(im, (0, 0))
 
         return padded_im
 
     @staticmethod
     def __im_path(im_name):
-        return 'VOC2012/JPEGImages/' + im_name + '.jpg'
+        return 'VOC2012+2007/JPEGImages/' + im_name + '.jpg'
 
     @staticmethod
     def __xml_path(im_name):
-        return 'VOC2012/Annotations/' + im_name + '.xml'
+        return 'VOC2012+2007/Annotations/' + im_name + '.xml'
 
     @staticmethod
     def __xml_parse(xml_dir):

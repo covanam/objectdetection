@@ -19,12 +19,12 @@ table = (
 
 totensor = torchvision.transforms.ToTensor()
 
-net = model.model()
-#net.load_state_dict(torch.load('model/model'))
+net = model.MyNet()
+net.load_state_dict(torch.load('model/model_mnasbase'))
 net.eval()
 
-im = Image.open('VOC2012/JPEGImages/2008_000036.jpg').resize((256, 256))
-x = torchvision.transform.ToTensor()(im)
+im = Image.open('chotuan.jpg').resize((256, 256))
+x = torchvision.transforms.ToTensor()(im).unsqueeze(0)
 
 out1, out2, out3, out4 = [c[0] for c in net(x)]
 
@@ -112,5 +112,5 @@ for gx in range(1):
         draw.text((x-w/2, y-h/2), 'lv4'+tag, font=fnt, fill=(255, 0, 0, 128))
 
 
-im.show()
+im.save('aaaa.png')
 

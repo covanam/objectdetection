@@ -1,23 +1,25 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as func
-import mnasnet
+import mobilenetv3 as mb3
 
 
 class MyNet(nn.Module):
     @staticmethod
     def _detector():
         return nn.Sequential(
-            nn.Conv2d(1280, 2409, 1, padding=0, stride=1, bias=True),
+            nn.Conv2d(160, 960, 1, padding=0, stride=1, bias=True),
             nn.Dropout2d(inplace=True, p=0),
-            nn.ReLU(True),
-            nn.Conv2d(2409, 2409, 1, padding=0, stride=1, bias=True),
+            mb3.Hswish(True),
+            
+            nn.Conv2d(960, 1280, 1, padding=0, stride=1, bias=True),
             nn.Dropout2d(inplace=True, p=0),
-            nn.ReLU(True),
-            nn.Conv2d(2409, 14, 1, padding=0, stride=1, bias=True)
+            mb3.Hswish(True),
+            
+            nn.Conv2d(1280, 14, 1, padding=0, stride=1, bias=True)
         )
 
-    def __init__(self, base_network=mnasnet.MNASNet(1.0)):
+    def __init__(self, base_network=mb3.MobileNetV3(mode='large', width_mult=1.0)):
         super().__init__()
         self.feature_extractor = base_network
        
@@ -43,3 +45,7 @@ class MyNet(nn.Module):
 
         return detection1, detection2, detection3, detection4
 
+
+if __name__ == '__main__':
+    net = MyNet()
+    torch.save(net.state_dict(), 'model/model')
