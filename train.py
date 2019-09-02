@@ -37,6 +37,9 @@ class LossFunction:
                 pos = x[level][:, i][target[level][:, i] == 1]  # output that will be trained to be positive
                 neg = x[level][:, i][target[level][:, i] == 0]  # output that will be trained to be negative
 
+                if pos.shape[0] == 0:
+                    continue  # nothing to train here
+
                 # loss for positive output:
                 obj_loss += F.binary_cross_entropy_with_logits(pos, torch.ones_like(pos), reduction='sum')
 
@@ -54,7 +57,11 @@ class LossFunction:
         bbox_loss = torch.zeros(1, dtype=torch.float, device=self.device)
         for level in range(4):
             for i in range(10):
-                mask = target[level][:, i:i+1].expand((-1, 4, -1, -1))
+                mask = (target[level][:, i:i+1] == True).expand((-1, 4, -1, -1))
+
+                if mask.sum().item() == 0:
+                    continue  # nothing to train here
+                
                 bbox_loss += F.mse_loss(
                     x[level][:, 10+4*i:14+4*i][mask],
                     target[level][:, 10+4*i:14+4*i][mask],
@@ -71,45 +78,46 @@ class LossMonitor:
         self.loss_history = []
 
     def add(self, loss):
-        self.count += 1
+        self.batch_count += 1
         self.accum_loss += loss
 
     def __enter__(self):
         return self
 
-    def __exit__(self):
-        avg_loss = self.total_loss / self.count
-        self.count = 0
+    def __exit__(self, a, b, c):
+        avg_loss = self.accum_loss / self.batch_count
+        self.batch_count = 0
         self.accum_loss = 0
         self.loss_history.append(avg_loss)
-        print('\t', avg_loss)
+        print('\tavg:', avg_loss)
 
 
 class Solver:
-    def __init__(self, model, optim, loss_fn=LossFunction, train_data=None, val_data=None):
+    def __init__(self, model, optim, loss_fn=LossFunction(), train_data=None, val_data=None):
         self.train_data = train_data
         self.val_data = val_data
         self.model = model
         self.loss_fn = loss_fn
         self.optim = optim
+        self.device = torch.device('cpu')
 
-    def train(self, num_epoch=10, print_every=5, batch_size=10, device=torch.device('cpu')):
+    def train(self, num_epoch=10, batch_size=10, device=torch.device('cpu')):
         # push model to GPU if needed
+        self.device = device
         self.model = self.model.to(device)
 
         # loss monitors
         train_loss_monitor = LossMonitor()
-        if self.val_data is not None:
-            val_loss_monitor = LossMonitor()
+        val_loss_monitor = LossMonitor()
 
         # data loaders
         pin_memory = device.type == 'cuda'
         train_dataloader = torch.utils.data.DataLoader(
-            self.train_data, batch_size, shuffle=True, num_workers=4, drop_last=True, pin_memory=pin_memory
+            self.train_data, batch_size, shuffle=True, num_workers=0, drop_last=True, pin_memory=pin_memory
         )
         if self.val_data is not None:
             val_dataloader = torch.utils.data.DataLoader(
-                self.val_data, 20, shuffle=True, num_workers=4, pin_memory=pin_memory
+                self.val_data, 20, shuffle=True, num_workers=0, pin_memory=pin_memory
             )
 
         # main part
@@ -118,9 +126,10 @@ class Solver:
             # train ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             self.model.train()
             with train_loss_monitor as monitor:
-                for x, target in train_dataloader:
-                    loss = self._train_step(x, target)
-                    monitor.add(loss)
+            for x, target in train_dataloader:
+                loss = self._train_step(x, target)
+                monitor.add(loss)
+                print('\t', loss)
 
             # if there is validation data, then validate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             if self.val_data is None:
@@ -162,6 +171,4 @@ class Solver:
 
         return loss.item()
 
-    def _finalize(self):
-        pass
 

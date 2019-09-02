@@ -179,25 +179,12 @@ class MyNet(nn.Module):
         self._initialize_weights()
 
     def forward(self, x):
-        tick = time.time()
         feature_map = self.features(x)
-        print(time.time() - tick)
 
-        tick = time.time()
         detection1 = self.decoder1(feature_map)
-        print(time.time() - tick)
-
-        tick = time.time()
         detection2 = self.decoder2(feature_map)
-        print(time.time() - tick)
-
-        tick = time.time()
         detection3 = self.decoder3(feature_map)
-        print(time.time() - tick)
-
-        tick = time.time()
         detection4 = self.decoder4(feature_map)
-        print(time.time() - tick)
 
         return detection1, detection2, detection3, detection4
 

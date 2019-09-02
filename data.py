@@ -63,10 +63,10 @@ class Dataset(torch.utils.data.Dataset):
         # read objects
         objects = self.__xml_parse(self.__xml_path(im_name))
 
-        # sample a square part of the image
-        im, objects = self.__sample(im, objects)
-
         if self.data_arg:
+            # sample a square part of the image
+            im, objects = self.__sample(im, objects)
+            
             # color jittering
             im = self.__colorjitter(im)
 
@@ -427,7 +427,7 @@ class TensorDataset(torch.utils.data.Dataset):
         return Dataset.interested_classes[tag]
 
 
-"""
+
 if __name__ == '__main__':
     table = ('bicycle', 'bus', 'car', 'cat', 'cow', 'dog', 'horse', 'motorbike', 'person', 'sheep')
 
@@ -470,4 +470,4 @@ if __name__ == '__main__':
                         #draw.text((x1, y1), '', font=fnt, fill=(255, 0, 0, 128))
 
     im.show()
-"""
+
