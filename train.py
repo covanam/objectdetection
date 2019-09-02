@@ -30,62 +30,63 @@ class LossFunction:
         return loss / batchsize
 
     def _calc_obj_loss(self, x, target):
-        obj_loss = torch.zeros(1, dtype=torch.float, device=self.device)
+        obj_loss = torch.zeros(1, dtype=torch.float, device=self.device)  # obj_loss = 0
+
         for level in range(4):
-            pos = x[level][:, 0:10][target[level][:, 0:10] == 1]
-            neg = x[level][:, 0:10][target[level][:, 0:10] == 0]
+            for i in range(10):  # we deal with 10 classes seperately
+                pos = x[level][:, i][target[level][:, i] == 1]  # output that will be trained to be positive
+                neg = x[level][:, i][target[level][:, i] == 0]  # output that will be trained to be negative
 
-            num_p = pos.shape[0]
-            num_n = neg.shape[0]
-            num_n_train = min(3 * num_p, num_n)
+                # loss for positive output:
+                obj_loss += F.binary_cross_entropy_with_logits(pos, torch.ones_like(pos), reduction='sum')
 
-            obj_loss += F.binary_cross_entropy_with_logits(
-                pos,
-                torch.ones_like(pos),
-                reduction='sum'
-            )
+                # for each positive output, pick 3 negative output for training
+                num_p, num_n = pos.shape[0], neg.shape[0]
+                num_n_train = min(3 * num_p, num_n)  # must not exceed num_n for obvious reason
+                neg = neg.topk(k=num_n_train)[0]  # pick highest
 
-            neg = neg.topk(k=num_n_train)[0]
-
-            obj_loss += F.binary_cross_entropy_with_logits(
-                neg,
-                torch.zeros_like(neg),
-                reduction='sum'
-            ) * (1/3)  # balanced
+                # loss for negative output
+                obj_loss += F.binary_cross_entropy_with_logits(neg, torch.zeros_like(neg), reduction='sum') * (1/3)
 
         return obj_loss
 
     def _calc_bbox_loss(self, x, target):
         bbox_loss = torch.zeros(1, dtype=torch.float, device=self.device)
         for level in range(4):
-            mask = (target[level][:, 14] != 0).unsqueeze(1).expand_as(x[level][:, 10:14])
-            bbox_loss += F.mse_loss(
-                x[level][:, 10:14][mask],
-                target[level][:, 10:14][mask],
-                reduction='sum'
-            )
+            for i in range(10):
+                mask = target[level][:, i:i+1].expand((-1, 4, -1, -1))
+                bbox_loss += F.mse_loss(
+                    x[level][:, 10+4*i:14+4*i][mask],
+                    target[level][:, 10+4*i:14+4*i][mask],
+                    reduction='sum'
+                )
 
         return bbox_loss
 
 
-class MeanLoss:
+class LossMonitor:
     def __init__(self):
-        self.count = 0
-        self.total_loss = 0
+        self.batch_count = 0
+        self.accum_loss = 0
+        self.loss_history = []
 
     def add(self, loss):
         self.count += 1
-        self.total_loss += loss
+        self.accum_loss += loss
 
-    def calc(self):
-        mean_loss = self.total_loss / self.count
+    def __enter__(self):
+        return self
+
+    def __exit__(self):
+        avg_loss = self.total_loss / self.count
         self.count = 0
-        self.total_loss = 0
-        return mean_loss
+        self.accum_loss = 0
+        self.loss_history.append(avg_loss)
+        print('\t', avg_loss)
 
 
 class Solver:
-    def __init__(self, model, optim, loss_fn, train_data, val_data=None):
+    def __init__(self, model, optim, loss_fn=LossFunction, train_data=None, val_data=None):
         self.train_data = train_data
         self.val_data = val_data
         self.model = model
@@ -93,72 +94,74 @@ class Solver:
         self.optim = optim
 
     def train(self, num_epoch=10, print_every=5, batch_size=10, device=torch.device('cpu')):
-        count = 0
-
-        train_loss_history = []
-        val_loss_history = []
+        # push model to GPU if needed
         self.model = self.model.to(device)
 
-        train_dataloader = torch.utils.data.DataLoader(self.train_data, batch_size, shuffle=True, num_workers=4, drop_last=True, pin_memory=True)
+        # loss monitors
+        train_loss_monitor = LossMonitor()
         if self.val_data is not None:
-            val_dataloader = torch.utils.data.DataLoader(self.val_data, 20, shuffle=True, num_workers=4, pin_memory=True)
+            val_loss_monitor = LossMonitor()
 
+        # data loaders
+        pin_memory = device.type == 'cuda'
+        train_dataloader = torch.utils.data.DataLoader(
+            self.train_data, batch_size, shuffle=True, num_workers=4, drop_last=True, pin_memory=pin_memory
+        )
+        if self.val_data is not None:
+            val_dataloader = torch.utils.data.DataLoader(
+                self.val_data, 20, shuffle=True, num_workers=4, pin_memory=pin_memory
+            )
+
+        # main part
         for e in range(num_epoch):
-            print('epoch', e, 'begin training---------------------------')
+            print('epoch', e, '--------------------------------')
+            # train ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             self.model.train()
+            with train_loss_monitor as monitor:
+                for x, target in train_dataloader:
+                    loss = self._train_step(x, target)
+                    monitor.add(loss)
 
-            # traininggggggggggggggggggggggggggggggggggggg
-            train_loss = MeanLoss()
-            for x, target in train_dataloader:
-                x = x.to(device)
-                target = [t.to(device) for t in target]
-
-                self.optim.zero_grad()
-
-                # forward path
-                pred = self.model(x)
-                loss = self.loss_fn(pred, target)
-
-                #if count % print_every == 0:
-                #    print(loss.item())
-                #count += 1
-
-                loss.backward()
-                self.optim.step()
-
-                train_loss.add(loss.item())
-            train_loss = train_loss.calc()
-            print('train_loss:', train_loss)
-            train_loss_history.append(train_loss)
-            with open('trainloss.txt', 'a') as f:
-                f.write(str(train_loss) + '\n')
-
-            # validatinggggggggggggggggggggggggggggggggggggggggggg
+            # if there is validation data, then validate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             if self.val_data is None:
                 continue
-            print('evaluate:')
+
             self.model.eval()
+            with val_loss_monitor as monitor:
+                for x, target in val_dataloader:
+                    loss = self._val_step(x, target)
+                    monitor.add(loss)
 
-            val_loss = MeanLoss()
-            for x, target in val_dataloader:
-                x = x.to(device)
-                target = [t.to(device) for t in target]
+        return train_loss_monitor.loss_history, val_loss_monitor.loss_history
 
-                # forward path
-                pred = self.model(x)
-                loss = self.loss_fn(pred, target)
+    def _train_step(self, x, target):
+        # move data to gpu if needed
+        x = x.to(self.device)
+        target = [t.to(self.device) for t in target]
 
-                loss.backward()
-                self.optim.zero_grad()  # no param update here!
-                self.optim.step()  # to free up space,
+        self.optim.zero_grad()
 
-                val_loss.add(loss.item())
-            val_loss = val_loss.calc()
-            print('val loss:', val_loss)
-            val_loss_history.append(val_loss)
-            with open('valloss.txt', 'a') as f:
-                f.write(str(val_loss) + '\n')
+        # forward path
+        pred = self.model(x)
+        loss = self.loss_fn(pred, target)
 
-        plt.plot(train_loss_history, 'b', val_loss_history, 'r--')
-        plt.savefig('foo.png')
-        self.model = self.model.to(torch.device('cpu'))
+        # backward path
+        loss.backward()
+        self.optim.step()
+
+        return loss.item()
+
+    def _val_step(self, x, target):
+        with torch.no_grad():
+            x = x.to(self.device)
+            target = [t.to(self.device) for t in target]
+
+            # forward path
+            pred = self.model(x)
+            loss = self.loss_fn(pred, target)
+
+        return loss.item()
+
+    def _finalize(self):
+        pass
+

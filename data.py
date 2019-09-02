@@ -5,6 +5,8 @@ import torchvision
 import xml.etree.ElementTree as Et
 import math
 
+__all__ = ['Dataset', 'TensorDataset']
+
 
 class Dataset(torch.utils.data.Dataset):
     interested_classes = {
@@ -42,15 +44,10 @@ class Dataset(torch.utils.data.Dataset):
         def h(self):
             return self.bbox[3] - self.bbox[1]
 
-    class Holder:
-        def __init__(self, data):
-            self.data = data
-
-    def __init__(self, file_dir, size=(256, 256), data_arg=True):
+    def __init__(self, file_dir, data_arg=True):
         with open(file_dir) as file:
             self.im_list = [line.strip() for line in file]
         self.data_arg = data_arg
-        self.size = size
         self.__preprocess()
 
     def __len__(self):
@@ -66,33 +63,22 @@ class Dataset(torch.utils.data.Dataset):
         # read objects
         objects = self.__xml_parse(self.__xml_path(im_name))
 
-        # perform data argumentation
+        # sample a square part of the image
+        im, objects = self.__sample(im, objects)
+
         if self.data_arg:
+            # color jittering
             im = self.__colorjitter(im)
 
-            god_will = random.randrange(2)
-            if god_will:
-                im = self.__pad(im)
-
-            # 50% chance to flip image
+            # randomly flipping image
             god_will = random.randrange(2)
             if god_will:
                 im, objects = self.__flip(im, objects)
 
-            # 50% chance to crop image
-            god_will = random.randrange(2)
-            if god_will:
-                im, objects = self.__crop(im, objects)
-
         # resize image to the expected size:
-        im, objects = self.__resize(im, objects, self.size)
+        im, objects = self.__resize(im, objects, (256, 256))
 
-        # convert to tensor to feed to network for training
-        im = self.__totensor(im)
-
-        target = self._construct_target_tensor(objects)
-
-        return im, target
+        return im, objects
 
     @staticmethod
     def __have_interested_object(objects):
@@ -121,10 +107,10 @@ class Dataset(torch.utils.data.Dataset):
         im = im.transpose(PIL.Image.FLIP_LEFT_RIGHT)
         width, height = im.size
 
-        for object in objects:
-            xmin, ymin, xmax, ymax = object.bbox
+        for obj in objects:
+            xmin, ymin, xmax, ymax = obj.bbox
             xmin, xmax = width - xmax, width - xmin
-            object.bbox = (xmin, ymin, xmax, ymax)
+            obj.bbox = (xmin, ymin, xmax, ymax)
 
         return im, objects
 
@@ -138,49 +124,110 @@ class Dataset(torch.utils.data.Dataset):
         return False
 
     @staticmethod
-    def __crop(im, objects):
-        """randomly crop image"""
+    def __crop(im, objects, box):
         width, height = im.size
 
-        left = random.randrange(width // 10)
-        upper = random.randrange(height // 10)
-        right = width - 1 - random.randrange(width // 10)
-        lower = height - 1 - random.randrange(height // 10)
+        left, upper, right, lower = box
 
         im = im.crop((left, upper, right, lower))
 
         objects = [obj for obj in objects if Dataset.__is_inside(obj.bbox, (left, upper, right, lower))]
         for obj in objects:
             xmin, ymin, xmax, ymax = obj.bbox
-            obj.bbox = xmin - left, ymin - upper, xmax - left, ymax - upper
+
+            xmin = Dataset._saturate_cast(xmin - left, width)
+            ymin = Dataset._saturate_cast(ymin - upper, height)
+            xmax = Dataset._saturate_cast(xmax - left, width)
+            ymax = Dataset._saturate_cast(ymax - upper, height)
+
+            obj.bbox = xmin, ymin, xmax, ymax
 
         return im, objects
 
     @staticmethod
-    def __pad(im):
-        new_size = max(im.size)
-        pad_color = random.randrange(256), random.randrange(256), random.randrange(256)
-        padded_im = PIL.Image.new('RGB', (new_size, new_size), pad_color)
-        padded_im.paste(im, (0, 0))
+    def _saturate_cast(x, m):
+        if x < 0:
+            return 0
+        if x > m - 1:
+            return m - 1
+        return x
 
-        return padded_im
+    @staticmethod
+    def __pad(im, objects):
+        """ randomly pad image to square with random color """
+        # calculate what size padded image should be
+        new_size = max(im.size)
+
+        # randomly pick a color for padding
+        pad_color = random.randrange(256), random.randrange(256), random.randrange(256)
+
+        # initiliza the new image
+        padded_im = PIL.Image.new('RGB', (new_size, new_size), pad_color)
+
+        # randomly choose paste location:
+        pos_x = random.randrange(0, new_size - im.size[0] + 1)
+        pos_y = random.randrange(0, new_size - im.size[1] + 1)
+
+        # copy original image to new square image
+        padded_im.paste(im, (pos_x, pos_y))
+
+        # calculate new bounding box for objects
+        for obj in objects:
+            xmin, ymin, xmax, ymax = obj.bbox
+            obj.bbox = xmin + pos_x, ymin + pos_y, xmax + pos_x, ymax + pos_y
+
+        return padded_im, objects
+
+    @staticmethod
+    def __sample(im, objects):
+        """take a random rectangle in the image, may be outside of image too"""
+        width, height = im.size
+        short = min(width, height)
+        long = max(width, height)
+
+        # randomly pick sample position and size
+        sample_size = random.randrange(short, long + 1)
+        sample_pos = random.randrange(0, long - sample_size + 1)
+
+        # calculate the bounding box of sampled rectangle
+        if height < width:
+            upper, left = 0, sample_pos
+            lower, right = height, sample_pos + sample_size
+        else:
+            upper, left = sample_pos, 0
+            lower, right = sample_pos + sample_size, width
+
+        im, objects = Dataset.__crop(im, objects, (left, upper, right, lower))
+        im, objects = Dataset.__pad(im, objects)
+
+        return im, objects
 
     @staticmethod
     def __im_path(im_name):
-        return 'VOC2012+2007/JPEGImages/' + im_name + '.jpg'
+        """ construct full image directory """
+        return 'VOC2012/JPEGImages/' + im_name + '.jpg'
 
     @staticmethod
     def __xml_path(im_name):
-        return 'VOC2012+2007/Annotations/' + im_name + '.xml'
+        """ construct full xml directory """
+        return 'VOC2012/Annotations/' + im_name + '.xml'
 
     @staticmethod
     def __xml_parse(xml_dir):
+        """ read xml file and return a list of objects """
+
         root = Et.parse(xml_dir).getroot()
+
+        # container
         objects = []
+
         for obj in root.findall('object'):
             tag = obj.find('name').text
+
+            # ignore objects that we are not interested in
             if tag not in Dataset.interested_classes:
                 continue
+
             bndbox = obj.find('bndbox')
             bbox = (int(bndbox.find('xmin').text),
                     int(bndbox.find('ymin').text),
@@ -190,8 +237,6 @@ class Dataset(torch.utils.data.Dataset):
 
         return objects
 
-    # image processing before feeding to network
-    __totensor = torchvision.transforms.ToTensor()
     @staticmethod
     def __resize(im, objects, size):
         scale_x = size[0] / im.size[0]
@@ -209,20 +254,41 @@ class Dataset(torch.utils.data.Dataset):
 
         return im, objects
 
+
+class TensorDataset(torch.utils.data.Dataset):
+    """ wrapper of above dataset, but return torch.tensor """
+    def __init__(self, dataset):
+        self.dataset = dataset
+        self._totensor = torchvision.transforms.ToTensor()
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, item):
+        im, objects = self.dataset[item]
+
+        x = self._totensor(im)
+        target = self._construct_target_tensor(objects)
+
+        return x, target
+
     def _construct_target_tensor(self, objects):
         target = []
 
+        # initilize container for target tensors
         for level in range(4):  # 4 levels: 15x15, 7x7, 3x3, 1x1
             size = 16 // 2 ** level - 1
-            target.append(torch.zeros((15, size, size), dtype=torch.float))
+            target.append(torch.zeros((50, size, size), dtype=torch.float))
 
+        # set which grid will be ignored
+        # (grid that does overlap with object, but not the best grid
+        # that overlap will be ignored
         for obj in objects:
             self._assign_ignore_zone(obj, target)
 
+        # set which grid has an object
         for obj in objects:
             self._assign_obj(obj, target)
-
-        self._finalize_target_tensor(target)
 
         return target
 
@@ -243,9 +309,10 @@ class Dataset(torch.utils.data.Dataset):
 
     @staticmethod
     def _grid_bbox(gx, gy, level):
+        """ calculate the bounding box of a grid cell """
         grid_size = 32 * 2**level
-        xmin = (grid_size // 2) * (gx + 1)
-        ymin = (grid_size // 2) * (gy + 1)
+        xmin = (grid_size // 2) * gx
+        ymin = (grid_size // 2) * gy
         xmax = xmin + grid_size
         ymax = ymin + grid_size
 
@@ -271,53 +338,30 @@ class Dataset(torch.utils.data.Dataset):
         return iou
 
     def _assign_obj(self, obj, target):
+        """ assign confident score, bounding box of object into target tensor """
+        # calculate which grid does this object belong to
         level = self._assign_level(obj)[0]
+        gx, gy = self._assign_grid(obj, level)
+
+        # read object's properties
         tag_id = self._encode_class(obj.tag)
 
-        grid_x, grid_y = self._assign_grid(obj, level)
+        x = obj.x()
+        y = obj.y()
+        w = obj.w()
+        h = obj.h()
 
-        if target[level][14, grid_x, grid_y].item() == 0:  # no object reside here, nice!
-            target[level][10, grid_x, grid_y] = obj.bbox[0]
-            target[level][11, grid_x, grid_y] = obj.bbox[1]
-            target[level][12, grid_x, grid_y] = obj.bbox[2]
-            target[level][13, grid_x, grid_y] = obj.bbox[3]
-            target[level][14, grid_x, grid_y] = 1  # mark as occupied
-        else:  # already have an object
-            target[level][10, grid_x, grid_y] = min(target[level][10, grid_x, grid_y].item(), obj.bbox[0])
-            target[level][11, grid_x, grid_y] = min(target[level][11, grid_x, grid_y].item(), obj.bbox[1])
-            target[level][12, grid_x, grid_y] = max(target[level][12, grid_x, grid_y].item(), obj.bbox[2])
-            target[level][13, grid_x, grid_y] = max(target[level][13, grid_x, grid_y].item(), obj.bbox[3])
+        # calculate actual value put into tensor
+        gridsize = 32 * 2**level  # 32 64 128 256
+        rx, ry = self._calc_relative_loc(gx, gy, x, y, level)
+        logw, logh = math.log(w / gridsize), math.log(h / gridsize)
 
-        target[level][tag_id, grid_x, grid_y] = 1
+        target[level][10 + 4*tag_id, gx, gy] = rx
+        target[level][11 + 4*tag_id, gx, gy] = ry
+        target[level][12 + 4*tag_id, gx, gy] = logw
+        target[level][13 + 4*tag_id, gx, gy] = logh
 
-    def _finalize_target_tensor(self, target):
-        for i in range(4):
-            grid_size = 32 * 2**i
-            for gx in range(16 // 2**i - 1):
-                for gy in range(16 // 2**i - 1):
-                    if target[i][14, gx, gy] == 0:
-                        continue
-                    xmin = target[i][10, gx, gy].item()
-                    ymin = target[i][11, gx, gy].item()
-                    xmax = target[i][12, gx, gy].item()
-                    ymax = target[i][13, gx, gy].item()
-
-                    if xmin < 0: xmin = 0
-                    if xmax > 256: xmax = 256
-                    if ymin < 0: ymin = 0
-                    if ymax > 256: ymax = 256
-
-                    x = (xmin + xmax) / 2
-                    y = (ymin + ymax) / 2
-                    w = xmax - xmin
-                    h = ymax - ymin
-
-                    rx, ry = self._cal_relative_loc(gx, gy, x, y, i)
-
-                    target[i][10, gx, gy] = rx
-                    target[i][11, gx, gy] = ry
-                    target[i][12, gx, gy] = math.log(w / grid_size)
-                    target[i][13, gx, gy] = math.log(h / grid_size)
+        target[level][tag_id, gx, gy] = 1
 
     @staticmethod
     def _assign_level(obj):
@@ -348,6 +392,7 @@ class Dataset(torch.utils.data.Dataset):
 
     @staticmethod
     def _assign_grid(obj, level):
+        """ hi """
         if level == 3:
             return 0, 0
         grid = 16 // (2 ** level) - 1  # 15, 7, 3, 1
@@ -370,7 +415,7 @@ class Dataset(torch.utils.data.Dataset):
         return grid_x, grid_y
 
     @staticmethod
-    def _cal_relative_loc(grid_x, grid_y, x, y, level):
+    def _calc_relative_loc(grid_x, grid_y, x, y, level):
         grid_size = 32 * 2 ** level
         relative_x = x / (grid_size / 2) - (grid_x + 1)
         relative_y = y / (grid_size / 2) - (grid_y + 1)
@@ -380,3 +425,49 @@ class Dataset(torch.utils.data.Dataset):
     @staticmethod
     def _encode_class(tag):
         return Dataset.interested_classes[tag]
+
+
+"""
+if __name__ == '__main__':
+    table = ('bicycle', 'bus', 'car', 'cat', 'cow', 'dog', 'horse', 'motorbike', 'person', 'sheep')
+
+    dataset = Dataset('VOC2012/ImageSets/Main/test.txt')
+    tensorset = TensorDataset(dataset)
+    x, target = tensorset[0]
+
+    im = torchvision.transforms.ToPILImage()(x)
+
+    draw = ImageDraw.Draw(im)
+    fnt = ImageFont.truetype('arial.ttf', 10)
+
+    for tensor in target:
+        grid = tensor.shape[1]
+        grid_size = 512 // (grid + 1)  # 32 64 128 256
+        for gx in range(grid):
+            for gy in range(grid):
+                for obj_idx in range(10):
+                    conf = tensor[obj_idx, gx, gy].item()
+                    if conf == 0:
+                        continue
+                    x = tensor[10 + obj_idx*4, gx, gy]
+                    y = tensor[11 + obj_idx*4, gx, gy]
+                    w = tensor[12 + obj_idx*4, gx, gy]
+                    h = tensor[13 + obj_idx*4, gx, gy]
+                    x = (grid_size / 2) * (gx + 1 + x)
+                    y = (grid_size / 2) * (gy + 1 + y)
+                    w = grid_size * math.exp(w)
+                    h = grid_size * math.exp(h)
+
+                    x1, x2 = int(x - w / 2), int(x + w / 2)
+                    y1, y2 = int(y - h / 2), int(y + h / 2)
+
+                    if conf == 1:
+                        tag = table[obj_idx]
+                        draw.rectangle((x1, y1, x2, y2), outline='red')
+                        draw.text((x1, y1), tag, font=fnt, fill=(255, 0, 0, 128))
+                    elif conf == -1:
+                        draw.rectangle((x1, y1, x2, y2), outline='green')
+                        #draw.text((x1, y1), '', font=fnt, fill=(255, 0, 0, 128))
+
+    im.show()
+"""

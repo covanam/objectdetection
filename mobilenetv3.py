@@ -1,10 +1,7 @@
-import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-
-__all__ = ['MobileNetV3', 'mobilenetv3']
-
+import torch
+import time
 
 def conv_bn(inp, oup, stride, conv_layer=nn.Conv2d, norm_layer=nn.BatchNorm2d, nlin_layer=nn.ReLU):
     return nn.Sequential(
@@ -40,6 +37,14 @@ class Hsigmoid(nn.Module):
         return F.relu6(x + 3., inplace=self.inplace) / 6.
 
 
+class UnNamed(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return x.abs() * x.tanh()
+
+
 class SEModule(nn.Module):
     def __init__(self, channel, reduction=4):
         super(SEModule, self).__init__()
@@ -67,43 +72,37 @@ class Identity(nn.Module):
         return x
 
 
-def make_divisible(x, divisible_by=8):
-    import numpy as np
-    return int(np.ceil(x * 1. / divisible_by) * divisible_by)
-
-
 class MobileBottleneck(nn.Module):
     def __init__(self, inp, oup, kernel, stride, exp, se=False, nl='RE'):
         super(MobileBottleneck, self).__init__()
-        assert stride in [1, 2]
-        assert kernel in [3, 5]
+
         padding = (kernel - 1) // 2
         self.use_res_connect = stride == 1 and inp == oup
 
         conv_layer = nn.Conv2d
         norm_layer = nn.BatchNorm2d
         if nl == 'RE':
-            nlin_layer = nn.ReLU # or ReLU6
+            nlin_layer = nn.ReLU
         elif nl == 'HS':
             nlin_layer = Hswish
         else:
             raise NotImplementedError
         if se:
-            SELayer = SEModule
+            se_layer = SEModule
         else:
-            SELayer = Identity
+            se_layer = Identity
 
         self.conv = nn.Sequential(
-            # pw
+            # point wise conv
             conv_layer(inp, exp, 1, 1, 0, bias=False),
             norm_layer(exp),
             nlin_layer(inplace=True),
-            # dw
+            # depth wise conv
             conv_layer(exp, exp, kernel, stride, padding, groups=exp, bias=False),
             norm_layer(exp),
-            SELayer(exp),
+            se_layer(exp),
             nlin_layer(inplace=True),
-            # pw-linear
+            # point wise, no non-linearity
             conv_layer(exp, oup, 1, 1, 0, bias=False),
             norm_layer(oup),
         )
@@ -115,96 +114,92 @@ class MobileBottleneck(nn.Module):
             return self.conv(x)
 
 
-class MobileNetV3(nn.Module):
-    def __init__(self, mode='small', width_mult=1.0):
-        super(MobileNetV3, self).__init__()
-        input_channel = 16
-        last_channel = 1280
-        if mode == 'large':
-            # refer to Table 1 in paper
-            mobile_setting = [
-                # k, exp, c,  se,     nl,  s,
-                [3, 16,  16,  False, 'RE', 1],
-                [3, 64,  24,  False, 'RE', 2],
-                [3, 72,  24,  False, 'RE', 1],
-                [5, 72,  40,  True,  'RE', 2],
-                [5, 120, 40,  True,  'RE', 1],
-                [5, 120, 40,  True,  'RE', 1],
-                [3, 240, 80,  False, 'HS', 2],
-                [3, 200, 80,  False, 'HS', 1],
-                [3, 184, 80,  False, 'HS', 1],
-                [3, 184, 80,  False, 'HS', 1],
-                [3, 480, 112, True,  'HS', 1],
-                [3, 672, 112, True,  'HS', 1],
-                [5, 672, 160, True,  'HS', 1],
-                [5, 960, 160, True,  'HS', 1],
-                [5, 960, 160, True,  'HS', 1],
-            ]
-        elif mode == 'small':
-            # refer to Table 2 in paper
-            mobile_setting = [
-                # k, exp, c,  se,     nl,  s,
-                [3, 16,  16,  True,  'RE', 2],
-                [3, 72,  24,  False, 'RE', 2],
-                [3, 88,  24,  False, 'RE', 1],
-                [5, 96,  40,  True,  'HS', 2],
-                [5, 240, 40,  True,  'HS', 1],
-                [5, 240, 40,  True,  'HS', 1],
-                [5, 120, 48,  True,  'HS', 1],
-                [5, 144, 48,  True,  'HS', 1],
-                [5, 288, 96,  True,  'HS', 2],
-                [5, 576, 96,  True,  'HS', 1],
-                [5, 576, 96,  True,  'HS', 1],
-            ]
-        else:
-            raise NotImplementedError
+class Decoder(nn.Module):
+    def __init__(self, inp, oup, kernel, stride, exp):
+        super().__init__()
+
+        conv_layer = nn.Conv2d
+        norm_layer = nn.BatchNorm2d
+
+        self.conv = nn.Sequential(
+            # point wise conv
+            conv_layer(inp, exp, 1, 1, 0, bias=True),
+            norm_layer(exp),
+            UnNamed(),
+            # depth wise conv
+            conv_layer(exp, exp, kernel, stride, 0, groups=exp, bias=False),
+            norm_layer(exp),
+            UnNamed(),
+            conv_layer(exp, oup, 1, 1, 0, bias=True)
+        )
+
+    def forward(self, x):
+        return self.conv(x)
+
+
+class MyNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        mobile_setting = [
+            # k, exp, c,  se,     nl,  s,
+            [3, 16,  16,  False, 'RE', 1],
+            [2, 64,  24,  False, 'RE', 2],  # kernel 3 -> 2
+            [3, 72,  24,  False, 'RE', 1],
+            [4, 72,  40,  True,  'RE', 2],  # kernel 5 -> 4
+            [5, 120, 40,  True,  'RE', 1],
+            [5, 120, 40,  True,  'RE', 1],
+            [2, 240, 80,  False, 'HS', 2],  # kernel 3 -> 2
+            [3, 200, 80,  False, 'HS', 1],
+            [3, 184, 80,  False, 'HS', 1],
+            [3, 184, 80,  False, 'HS', 1],
+            [3, 480, 112, True,  'HS', 1],
+            [3, 672, 112, True,  'HS', 1],
+            # [5, 672, 160, True,  'HS', 1],  # removed
+            # [5, 960, 160, True,  'HS', 1],  # removed
+            # [5, 960, 160, True,  'HS', 1],  # removed
+        ]
 
         # building first layer
-        #assert input_size % 32 == 0
-        last_channel = make_divisible(last_channel * width_mult) if width_mult > 1.0 else last_channel
-        self.features = [conv_bn(3, input_channel, 2, nlin_layer=Hswish)]
-        self.classifier = []
+        self.features = [conv_bn(3, 16, 2, nlin_layer=Hswish)]
 
-        # building mobile blocks
+        # building mobile blocks inp, oup, kernel, stride, exp, se=False, nl='RE'):
+        cin = 16
         for k, exp, c, se, nl, s in mobile_setting:
-            output_channel = make_divisible(c * width_mult)
-            exp_channel = make_divisible(exp * width_mult)
-            self.features.append(MobileBottleneck(input_channel, output_channel, k, s, exp_channel, se, nl))
-            input_channel = output_channel
-
-        # building last several layers
-        # last layer belong to our model
-        '''
-        if mode == 'large':
-            last_conv = make_divisible(960 * width_mult)
-            self.features.append(conv_1x1_bn(input_channel, last_conv, nlin_layer=Hswish))
-            self.features.append(nn.AdaptiveAvgPool2d(1))
-            self.features.append(nn.Conv2d(last_conv, last_channel, 1, 1, 0))
-            self.features.append(Hswish(inplace=True))
-        elif mode == 'small':
-            last_conv = make_divisible(576 * width_mult)
-            self.features.append(conv_1x1_bn(input_channel, last_conv, nlin_layer=Hswish))
-            # self.features.append(SEModule(last_conv))  # refer to paper Table2, but I think this is a mistake
-            self.features.append(nn.AdaptiveAvgPool2d(1))
-            self.features.append(nn.Conv2d(last_conv, last_channel, 1, 1, 0))
-            self.features.append(Hswish(inplace=True))
-        else:
-            raise NotImplementedError
-        '''
+            self.features.append(MobileBottleneck(cin, c, k, s, exp, se, nl))
+            cin = c
 
         # make it nn.Sequential
         self.features = nn.Sequential(*self.features)
 
-        # building classifier
-        #self.classifier = nn.Sequential(
-        #    nn.Dropout(p=dropout),    # refer to paper section 6
-        #    nn.Linear(last_channel, n_class),
-        #)
+        self.decoder1 = Decoder(112, 50, 2, 1, 1024)
+        self.decoder2 = Decoder(112, 50, 4, 2, 512)
+        self.decoder3 = Decoder(112, 50, 8, 4, 256)
+        self.decoder4 = Decoder(112, 50, 16, 8, 128)
 
         self._initialize_weights()
 
     def forward(self, x):
-        return self.features(x)
+        tick = time.time()
+        feature_map = self.features(x)
+        print(time.time() - tick)
+
+        tick = time.time()
+        detection1 = self.decoder1(feature_map)
+        print(time.time() - tick)
+
+        tick = time.time()
+        detection2 = self.decoder2(feature_map)
+        print(time.time() - tick)
+
+        tick = time.time()
+        detection3 = self.decoder3(feature_map)
+        print(time.time() - tick)
+
+        tick = time.time()
+        detection4 = self.decoder4(feature_map)
+        print(time.time() - tick)
+
+        return detection1, detection2, detection3, detection4
 
     def _initialize_weights(self):
         # weight initialization
@@ -220,3 +215,14 @@ class MobileNetV3(nn.Module):
                 nn.init.normal_(m.weight, 0, 0.01)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
+
+
+if __name__ == '__main__':
+    net = MyNet().eval()
+    torch.save(net.state_dict(), 'model/model')
+    x = torch.zeros((1, 3, 256, 256))
+    torch.set_num_threads(1)
+    with torch.no_grad():
+        start = time.time()
+        pred = net(x)
+        print(time.time() - start)
