@@ -205,12 +205,12 @@ class Dataset(torch.utils.data.Dataset):
     @staticmethod
     def __im_path(im_name):
         """ construct full image directory """
-        return 'VOC2012/JPEGImages/' + im_name + '.jpg'
+        return 'VOC2007+2012/JPEGImages/' + im_name + '.jpg'
 
     @staticmethod
     def __xml_path(im_name):
         """ construct full xml directory """
-        return 'VOC2012/Annotations/' + im_name + '.xml'
+        return 'VOC2007+2012/Annotations/' + im_name + '.xml'
 
     @staticmethod
     def __xml_parse(xml_dir):

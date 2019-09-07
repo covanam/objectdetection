@@ -27,46 +27,6 @@ class ConvBlock(nn.Module):
         return self.pool(x)
 
 
-class Hswish(nn.Module):
-    def __init__(self, inplace=True):
-        super(Hswish, self).__init__()
-        self.inplace = inplace
-
-    def forward(self, x):
-        return x * F.relu6(x + 3., inplace=self.inplace) / 6.
-
-
-class MobileBottleneck(nn.Module):
-    def __init__(self, inp, exp, oup, kernel, stride):
-        super(MobileBottleneck, self).__init__()
-        padding = (kernel - 1) // 2
-        self.use_res_connect = stride == 1 and inp == oup
-
-        conv_layer = nn.Conv2d
-        norm_layer = nn.BatchNorm2d
-        nlin_layer = Hswish
-
-        self.conv = nn.Sequential(
-            # pw
-            conv_layer(inp, exp, 1, 1, 0, bias=False),
-            norm_layer(exp),
-            nlin_layer(inplace=True),
-            # dw
-            conv_layer(exp, exp, kernel, stride, padding, groups=exp, bias=False),
-            norm_layer(exp),
-            nlin_layer(inplace=True),
-            # pw-linear
-            conv_layer(exp, oup, 1, 1, 0, bias=False),
-            norm_layer(oup),
-        )
-
-    def forward(self, x):
-        if self.use_res_connect:
-            return x + self.conv(x)
-        else:
-            return self.conv(x)
-
-
 class Decoder(nn.Module):
     def __init__(self):
         super().__init__()
@@ -75,33 +35,19 @@ class Decoder(nn.Module):
         norm_layer = nn.BatchNorm2d
 
         self.layers = nn.Sequential(
-            # pw
-            conv_layer(128, 768, 1, 1, 0, bias=False),
-            norm_layer(768),
-            Hswish(inplace=True),
-            # dw
-            conv_layer(768, 768, 4, 2, 0, groups=768, bias=False),
-            norm_layer(768),
+            conv_layer(256, 512, 1, 1, 0, bias=False),
+            norm_layer(512),
+            nn.ReLU(True),
+            
+            conv_layer(512, 512, 4, 2, 0, bias=False),
+            norm_layer(512),
             nn.Tanh(),
-            # pw-linear
-            conv_layer(768, 50, 1, 1, 0, bias=False),
+            
+            conv_layer(512, 50, 1, 1, 0, bias=True),
         )
 
     def forward(self, x):
         return self.layers(x)
-
-
-class MBBlock(nn.Module):
-    def __init__(self, din, dout):
-        super().__init__()
-        self.conv = nn.Sequential(
-            MobileBottleneck(din, 6 * din, din, 3, 1),
-            MobileBottleneck(din, 6 * din, din, 3, 1),
-            MobileBottleneck(din, 6 * dout, dout, 2, 2)
-        )
-
-    def forward(self, x):
-        return self.conv(x)
 
 
 class MyNet(nn.Module):
@@ -109,20 +55,21 @@ class MyNet(nn.Module):
         super().__init__()
 
         self.first_layer = nn.Sequential(
-            nn.Conv2d(3, 16, 3, 1, 1),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(3, 32, 3, 1, 1),
+            nn.BatchNorm2d(32),
             nn.ReLU(True)
         )
 
         self.block1 = nn.Sequential(
-            ConvBlock(16, 32),
-            ConvBlock(32, 64),
-            ConvBlock(64, 128),
+            ConvBlock(32, 64),  # 64x128x128
+            ConvBlock(64, 128),  # 128x64x64
+            ConvBlock(128, 256),  # 256x32x32
         )  # 32
 
-        self.block2 = MBBlock(128, 128)  # 16
-        self.block3 = MBBlock(128, 128)  # 8
-        self.block4 = MBBlock(128, 128)  # 4
+        self.block2 = ConvBlock(256, 256)  # 16
+        self.block3 = ConvBlock(256, 256)  # 8
+        self.block4 = ConvBlock(256, 256)  # 4
+
 
         self.decoder1 = Decoder()
         self.decoder2 = Decoder()
@@ -148,10 +95,18 @@ class MyNet(nn.Module):
 
 
 if __name__ == '__main__':
-    net = MyNet().eval()
+    net = MyNet().eval().cuda()
     torch.save(net.state_dict(), 'model/model')
-    im = torch.zeros((1, 3, 256, 256))
+    im = torch.zeros((1, 3, 256, 256)).cuda()
     with torch.no_grad():
+        pred=net(im)
+        start = time.time()
         pred = net(im)
+        pred = net(im)
+        pred = net(im)
+        pred = net(im)
+        pred = net(im)
+        stop = time.time()
+        print(stop - start)
     for p in pred:
         print(p.shape)

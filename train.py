@@ -25,14 +25,14 @@ class LossFunction:
         obj_loss = self._calc_obj_loss(x, target)
         bbox_loss = self._calc_bbox_loss(x, target)
 
-        loss = obj_loss + bbox_loss
+        loss = obj_loss# + bbox_loss
 
         return loss / batchsize
 
     def _calc_obj_loss(self, x, target):
         obj_loss = torch.zeros(1, dtype=torch.float, device=self.device)  # obj_loss = 0
 
-        for level in range(4):
+        for level in range(3, 4):
             for i in range(10):  # we deal with 10 classes seperately
                 pos = x[level][:, i][target[level][:, i] == 1]  # output that will be trained to be positive
                 neg = x[level][:, i][target[level][:, i] == 0]  # output that will be trained to be negative
@@ -112,12 +112,13 @@ class Solver:
 
         # data loaders
         pin_memory = device.type == 'cuda'
+        print(pin_memory)
         train_dataloader = torch.utils.data.DataLoader(
-            self.train_data, batch_size, shuffle=True, num_workers=0, drop_last=True, pin_memory=pin_memory
+            self.train_data, batch_size, shuffle=True, num_workers=4, drop_last=True, pin_memory=pin_memory
         )
         if self.val_data is not None:
             val_dataloader = torch.utils.data.DataLoader(
-                self.val_data, 20, shuffle=True, num_workers=0, pin_memory=pin_memory
+                self.val_data, 20, shuffle=True, num_workers=4, pin_memory=pin_memory
             )
 
         # main part
@@ -126,10 +127,10 @@ class Solver:
             # train ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             self.model.train()
             with train_loss_monitor as monitor:
-            for x, target in train_dataloader:
-                loss = self._train_step(x, target)
-                monitor.add(loss)
-                print('\t', loss)
+                for x, target in train_dataloader:
+                    loss = self._train_step(x, target)
+                    monitor.add(loss)
+                    print(loss)
 
             # if there is validation data, then validate ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
             if self.val_data is None:

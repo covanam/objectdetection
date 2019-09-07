@@ -1,31 +1,32 @@
 import train
 import data
 import torch
-import mobilenetv3
+import model
 import winsound
+import matplotlib.pyplot as plt
 
 # setting ---------------------------------------------------
-learning_rate = 1e-4
+learning_rate = 1e-2
 momentum = 0
-num_epoch = 1
-batch_size = 10
+num_epoch = 5
+batch_size = 32
 
 device = torch.device('cuda')
 
 if __name__ == '__main__':
     # network -------------------------------------------------------------------
-    net = mobilenetv3.MyNet()
+    net = model.MyNet()
     net.load_state_dict(torch.load('model/model'))
 
     # dataset----------------------------------------------------------------------------------
-    voc2012_train_dataset = data.Dataset('VOC2012/ImageSets/Main/train.txt', data_arg=True)
-    voc2012_val_dataset = data.Dataset('VOC2012/ImageSets/Main/val.txt', data_arg=True)
+    voc2012_train_dataset = data.Dataset('VOC2007+2012/ImageSets/Main/train.txt', data_arg=True)
+    voc2012_val_dataset = data.Dataset('VOC2007+2012/ImageSets/Main/val.txt', data_arg=True)
 
     train_dataset = data.TensorDataset(voc2012_train_dataset)
     val_dataset = data.TensorDataset(voc2012_val_dataset)
 
     # training setup--------------------------------------------------------------------------------------
-    optim = torch.optim.SGD(net.parameters(), lr=learning_rate, momentum=momentum)
+    optim = torch.optim.Adam(net.parameters(), lr=learning_rate)
 
     solv = train.Solver(
         model=net,
@@ -44,3 +45,6 @@ if __name__ == '__main__':
 
     for i in range(1, 10):
         winsound.Beep(i * 100, 200)
+
+    plt.plot(train_losses, 'b', val_losses, 'r--')
+    plt.show()
