@@ -59,7 +59,11 @@ class MyNet(nn.Module):
             ConvRes(128)
         )
 
-        self.classifier = nn.Conv2d(128, 50, 8, 4, bias=True)
+        self.classifier = torch.nn.Sequential(
+            torch.nn.Conv2d(128, 256, 8, 4, bias=True),
+            torch.nn.Tanh(),
+            torch.nn.Conv2d(256, 50, 1, 1, bias=True)
+        )
 
     def forward(self, x):
         # basic transforms

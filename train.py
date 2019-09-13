@@ -25,14 +25,14 @@ class LossFunction:
         obj_loss = self._calc_obj_loss(x, target)
         bbox_loss = self._calc_bbox_loss(x, target)
 
-        loss = obj_loss# + bbox_loss
+        loss = obj_loss + 0.5 * bbox_loss
 
         return loss / batchsize
 
     def _calc_obj_loss(self, x, target):
         obj_loss = torch.zeros(1, dtype=torch.float, device=self.device)  # obj_loss = 0
 
-        for level in range(3, 4):
+        for level in range(4):
             for i in range(10):  # we deal with 10 classes seperately
                 pos = x[level][:, i][target[level][:, i] == 1]  # output that will be trained to be positive
                 neg = x[level][:, i][target[level][:, i] == 0]  # output that will be trained to be negative

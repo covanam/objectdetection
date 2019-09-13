@@ -76,7 +76,7 @@ class Dataset(torch.utils.data.Dataset):
                 im, objects = self.__flip(im, objects)
 
         # resize image to the expected size:
-        im, objects = self.__resize(im, objects, (256, 256))
+        im, objects = self.__resize(im, objects, (512, 512))
 
         return im, objects
 
@@ -99,7 +99,7 @@ class Dataset(torch.utils.data.Dataset):
         self.im_list = processed_list
 
     # argumentation:
-    __colorjitter = torchvision.transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5, hue=0.1)
+    __colorjitter = torchvision.transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05)
 
     @staticmethod
     def __flip(im, objects):

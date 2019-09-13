@@ -6,10 +6,9 @@ import winsound
 import matplotlib.pyplot as plt
 
 # setting ---------------------------------------------------
-learning_rate = 1e-2
-momentum = 0
-num_epoch = 5
-batch_size = 32
+learning_rate = 1e-5
+num_epoch = 4
+batch_size = 16
 
 device = torch.device('cuda')
 
