@@ -66,7 +66,7 @@ class Dataset(torch.utils.data.Dataset):
         if self.data_arg:
             # sample a square part of the image
             im, objects = self.__sample(im, objects)
-            
+
             # color jittering
             im = self.__colorjitter(im)
 
@@ -205,12 +205,12 @@ class Dataset(torch.utils.data.Dataset):
     @staticmethod
     def __im_path(im_name):
         """ construct full image directory """
-        return 'VOC2007+2012/JPEGImages/' + im_name + '.jpg'
+        return 'VOC2012/JPEGImages/' + im_name + '.jpg'
 
     @staticmethod
     def __xml_path(im_name):
         """ construct full xml directory """
-        return 'VOC2007+2012/Annotations/' + im_name + '.xml'
+        return 'VOC2012/Annotations/' + im_name + '.xml'
 
     @staticmethod
     def __xml_parse(xml_dir):
@@ -257,6 +257,7 @@ class Dataset(torch.utils.data.Dataset):
 
 class TensorDataset(torch.utils.data.Dataset):
     """ wrapper of above dataset, but return torch.tensor """
+
     def __init__(self, dataset):
         self.dataset = dataset
         self._totensor = torchvision.transforms.ToTensor()
@@ -296,10 +297,10 @@ class TensorDataset(torch.utils.data.Dataset):
         level, sub_level = self._assign_level(obj)
         tag_id = self._encode_class(obj.tag)
         gx, gy = self._assign_grid(obj, level)
-        grid = 16 // 2**level - 1  # 15 7 3 1
+        grid = 16 // 2 ** level - 1  # 15 7 3 1
 
-        for ix in range(max(0, gx-1), min(grid, gx+2)):
-            for iy in range(max(0, gy-1), min(grid, gy+2)):
+        for ix in range(max(0, gx - 1), min(grid, gx + 2)):
+            for iy in range(max(0, gy - 1), min(grid, gy + 2)):
                 if self._iou(obj.bbox, self._grid_bbox(ix, iy, level)) > 0:
                     target[level][tag_id, ix, iy] = -1
 
@@ -310,7 +311,7 @@ class TensorDataset(torch.utils.data.Dataset):
     @staticmethod
     def _grid_bbox(gx, gy, level):
         """ calculate the bounding box of a grid cell """
-        grid_size = 32 * 2**level
+        grid_size = 64 * 2 ** level
         xmin = (grid_size // 2) * gx
         ymin = (grid_size // 2) * gy
         xmax = xmin + grid_size
@@ -352,41 +353,41 @@ class TensorDataset(torch.utils.data.Dataset):
         h = obj.h()
 
         # calculate actual value put into tensor
-        gridsize = 32 * 2**level  # 32 64 128 256
+        gridsize = 64 * 2 ** level  # 32 64 128 256
         rx, ry = self._calc_relative_loc(gx, gy, x, y, level)
         logw, logh = math.log(w / gridsize), math.log(h / gridsize)
 
-        target[level][10 + 4*tag_id, gx, gy] = rx
-        target[level][11 + 4*tag_id, gx, gy] = ry
-        target[level][12 + 4*tag_id, gx, gy] = logw
-        target[level][13 + 4*tag_id, gx, gy] = logh
+        target[level][10 + 4 * tag_id, gx, gy] = rx
+        target[level][11 + 4 * tag_id, gx, gy] = ry
+        target[level][12 + 4 * tag_id, gx, gy] = logw
+        target[level][13 + 4 * tag_id, gx, gy] = logh
 
         target[level][tag_id, gx, gy] = 1
 
     @staticmethod
     def _assign_level(obj):
         area = obj.area()
-        if area < 2048:  # 0 -> 2x32x32
-            if area > 1536:
+        if area < 8192:  # 0 -> 2x32x32
+            if area > 6144:
                 return 0, 1
             else:
                 return 0, -1
 
-        if area < 8192:  # 2x32x32 -> 2x64x64
-            if area > 6144:
+        if area < 32768:  # 2x32x32 -> 2x64x64
+            if area > 24576:
                 return 1, 2
-            if area < 3072:
+            if area < 12288:
                 return 1, 0
             return 1, -1
 
-        if area < 32768:  # 2x64x64 -> 2x128x128
-            if area > 24576:
+        if area < 131072:  # 2x64x64 -> 2x128x128
+            if area > 98304:
                 return 2, 3
-            if area < 12288:
+            if area < 49152:
                 return 2, 1
             return 2, -1
 
-        if area < 49152:
+        if area < 196608:
             return 3, 2
         return 3, -1
 
@@ -396,16 +397,16 @@ class TensorDataset(torch.utils.data.Dataset):
         if level == 3:
             return 0, 0
         grid = 16 // (2 ** level) - 1  # 15, 7, 3, 1
-        micro_grid = 32 // 2**level  # 32 16 8 4
+        micro_grid = 32 // 2 ** level  # 32 16 8 4
 
-        grid_x = obj.x() // (256 // micro_grid)
+        grid_x = obj.x() // (512 // micro_grid)
         grid_x = (grid_x + 1) // 2 - 1
         if grid_x < 0:
             grid_x = 0
         if grid_x > grid - 1:
             grid_x = grid - 1
 
-        grid_y = obj.y() // (256 // micro_grid)
+        grid_y = obj.y() // (512 // micro_grid)
         grid_y = (grid_y + 1) // 2 - 1
         if grid_y < 0:
             grid_y = 0
@@ -416,7 +417,7 @@ class TensorDataset(torch.utils.data.Dataset):
 
     @staticmethod
     def _calc_relative_loc(grid_x, grid_y, x, y, level):
-        grid_size = 32 * 2 ** level
+        grid_size = 64 * 2 ** level
         relative_x = x / (grid_size / 2) - (grid_x + 1)
         relative_y = y / (grid_size / 2) - (grid_y + 1)
 
@@ -427,47 +428,56 @@ class TensorDataset(torch.utils.data.Dataset):
         return Dataset.interested_classes[tag]
 
 
+def _test():
+    from PIL import Image, ImageFont, ImageDraw
+    table = (
+        'bicycle',
+        'bus',
+        'car',
+        'cat',
+        'cow',
+        'dog',
+        'horse',
+        'motorbike',
+        'person',
+        'sheep'
+    )
+    dataset = Dataset('VOC2012/ImageSets/Main/test.txt', data_arg=True)
 
-if __name__ == '__main__':
-    table = ('bicycle', 'bus', 'car', 'cat', 'cow', 'dog', 'horse', 'motorbike', 'person', 'sheep')
+    tdataset = TensorDataset(dataset)
 
-    dataset = Dataset('VOC2012/ImageSets/Main/test.txt')
-    tensorset = TensorDataset(dataset)
-    x, target = tensorset[0]
-
-    im = torchvision.transforms.ToPILImage()(x)
+    im, out = tdataset[0]
+    im = torchvision.transforms.ToPILImage()(im)
 
     draw = ImageDraw.Draw(im)
-    fnt = ImageFont.truetype('arial.ttf', 10)
+    fnt = ImageFont.truetype('arial.ttf', 15)
 
-    for tensor in target:
-        grid = tensor.shape[1]
-        grid_size = 512 // (grid + 1)  # 32 64 128 256
-        for gx in range(grid):
-            for gy in range(grid):
-                for obj_idx in range(10):
-                    conf = tensor[obj_idx, gx, gy].item()
-                    if conf == 0:
+    for level in range(4):
+        gg = 16 // 2 ** level - 1
+        grid = 64 * 2 ** level
+        for gx in range(gg):
+            for gy in range(gg):
+                for i in range(10):
+                    conf = out[level][i, gx, gy]
+                    if conf.item() != 1:
                         continue
-                    x = tensor[10 + obj_idx*4, gx, gy]
-                    y = tensor[11 + obj_idx*4, gx, gy]
-                    w = tensor[12 + obj_idx*4, gx, gy]
-                    h = tensor[13 + obj_idx*4, gx, gy]
-                    x = (grid_size / 2) * (gx + 1 + x)
-                    y = (grid_size / 2) * (gy + 1 + y)
-                    w = grid_size * math.exp(w)
-                    h = grid_size * math.exp(h)
 
-                    x1, x2 = int(x - w / 2), int(x + w / 2)
-                    y1, y2 = int(y - h / 2), int(y + h / 2)
+                    x = out[level][10 + 4 * i, gx, gy].item()
+                    y = out[level][11 + 4 * i, gx, gy].item()
+                    w = out[level][12 + 4 * i, gx, gy].item()
+                    h = out[level][13 + 4 * i, gx, gy].item()
+                    x = (grid // 2) * (1 + gx + x)
+                    y = (grid // 2) * (1 + gy + y)
+                    w = grid * math.exp(w)
+                    h = grid * math.exp(h)
 
-                    if conf == 1:
-                        tag = table[obj_idx]
-                        draw.rectangle((x1, y1, x2, y2), outline='red')
-                        draw.text((x1, y1), tag, font=fnt, fill=(255, 0, 0, 128))
-                    elif conf == -1:
-                        draw.rectangle((x1, y1, x2, y2), outline='green')
-                        #draw.text((x1, y1), '', font=fnt, fill=(255, 0, 0, 128))
+                    tag = table[i] + str(conf.item())
+
+                    draw.rectangle((x - w / 2, y - h / 2, x + w / 2, y + h / 2), outline='red')
+                    draw.text((x - w / 2, y - h / 2), tag, font=fnt, fill=(255, 0, 0, 128))
 
     im.show()
 
+
+if __name__ == '__main__':
+    _test()
