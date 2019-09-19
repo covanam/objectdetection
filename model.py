@@ -50,20 +50,42 @@ def _stack(in_ch, out_ch, kernel_size, stride, exp_factor, repeats,
 
 
 class _Eye(torch.nn.Module):
+    class WhateverLayer(nn.Module):
+        def __init__(self, in_ch, out_ch, kernel_size, stride, expansion_factor):
+            super().__init__()
+            mid_ch = in_ch * expansion_factor
+            self.apply_residual = (in_ch == out_ch and stride == 1)
+            self.layers = nn.Sequential(
+                # Pointwise
+                nn.Conv2d(in_ch, mid_ch, 1, bias=True),
+                nn.ReLU(inplace=True),
+                # Depthwise
+                nn.Conv2d(mid_ch, mid_ch, kernel_size, padding=(kernel_size - 1) // 2,
+                          stride=stride, groups=mid_ch, bias=True),
+                nn.ReLU(inplace=True),
+                # Linear pointwise. Note that there's no activation.
+                nn.Conv2d(mid_ch, out_ch, 1, bias=True),
+            )
+
+        def forward(self, input):
+            if self.apply_residual:
+                return self.layers(input) + input
+            else:
+                return None
+            
     class LastLayer(nn.Module):
-        def __init__(self, in_ch, out_ch, expansion_factor,
-                     bn_momentum=0.1):
+        def __init__(self, in_ch, out_ch, expansion_factor):
             super().__init__()
             mid_ch = in_ch * expansion_factor
             self.layers = nn.Sequential(
                 # Pointwise
-                nn.Conv2d(in_ch, mid_ch, 1, bias=False),
-                nn.BatchNorm2d(mid_ch, momentum=bn_momentum),
+                nn.Conv2d(in_ch, mid_ch, 1, bias=True),
+                #nn.BatchNorm2d(mid_ch, momentum=bn_momentum),
                 nn.ReLU(inplace=True),
                 # Depthwise
-                nn.Conv2d(mid_ch, mid_ch, 4, padding=0, stride=2, groups=mid_ch, bias=False),
-                nn.BatchNorm2d(mid_ch, momentum=bn_momentum),
-                nn.ReLU(inplace=True),
+                nn.Conv2d(mid_ch, mid_ch, 4, padding=0, stride=2, groups=mid_ch, bias=True),
+                #nn.BatchNorm2d(mid_ch, momentum=bn_momentum),
+                nn.Tanh(),
                 # Linear pointwise
                 nn.Conv2d(mid_ch, out_ch, 1, bias=True)  # note on bias
             )
@@ -74,9 +96,9 @@ class _Eye(torch.nn.Module):
     def __init__(self, in_ch=96, out_ch=50, bn_momentum=_BN_MOMENTUM):
         super().__init__()
         self.layers = nn.Sequential(
-            _InvertedResidual(in_ch, in_ch, 3, 1, 6, bn_momentum),
-            _InvertedResidual(in_ch, in_ch, 3, 1, 6, bn_momentum),
-            _Eye.LastLayer(in_ch, out_ch, 6, bn_momentum)
+            _Eye.WhateverLayer(in_ch, in_ch, 3, 1, 6),
+            _Eye.WhateverLayer(in_ch, in_ch, 3, 1, 6),
+            _Eye.LastLayer(in_ch, out_ch, 6)
         )
 
     def forward(self, x):
@@ -96,7 +118,7 @@ class _Rescale(nn.Module):
         return self.layers(x)
 
 
-class MNASNet(torch.nn.Module):
+class MyNet(torch.nn.Module):
     """ MNASNet, as described in https://arxiv.org/pdf/1807.11626.pdf.
     >>> model = MNASNet(1000, 1.0)
     >>> x = torch.rand(1, 3, 224, 224)
@@ -108,8 +130,8 @@ class MNASNet(torch.nn.Module):
     """
 
     def __init__(self):
-        super(MNASNet, self).__init__()
-        depths = [24, 40, 80, 96, 192, 320]
+        super().__init__()
+        depths = [24, 40, 80, 96]
         layers = [
             # First layer: regular conv.
             nn.Conv2d(3, 32, 3, padding=1, stride=2, bias=False),
@@ -134,14 +156,13 @@ class MNASNet(torch.nn.Module):
         self.rescale2 = _Rescale(96, _BN_MOMENTUM)
         self.rescale3 = _Rescale(96, _BN_MOMENTUM)
 
-        self.eye1 = _Eye()
-        self.eye2 = _Eye()
-        self.eye3 = _Eye()
-        self.eye4 = _Eye()
+        self.eye1 = _Eye(bn_momentum=_BN_MOMENTUM)
+        self.eye2 = _Eye(bn_momentum=_BN_MOMENTUM)
+        self.eye3 = _Eye(bn_momentum=_BN_MOMENTUM)
+        self.eye4 = _Eye(bn_momentum=_BN_MOMENTUM)
 
     def forward(self, x):
-        with torch.no_grad():
-            ft1 = self.layers(x)
+        ft1 = self.layers(x)
         ft2 = self.rescale1(ft1)
         ft3 = self.rescale2(ft2)
         ft4 = self.rescale3(ft3)
@@ -153,31 +174,19 @@ class MNASNet(torch.nn.Module):
 
         return d_1, d_2, d_3, d_4
 
-    def _initialize_weights(self):
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                nn.init.kaiming_normal_(m.weight, mode="fan_out",
-                                        nonlinearity="relu")
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.BatchNorm2d):
-                nn.init.ones_(m.weight)
-                nn.init.zeros_(m.bias)
-            elif isinstance(m, nn.Linear):
-                nn.init.normal_(m.weight, 0.01)
-                nn.init.zeros_(m.bias)
-
 
 if __name__ == '__main__':
     import time
 
-    net = MNASNet().eval()
+    net = MyNet().eval()
     pretrained = torch.load('model/mnasnet.pth')
     for key in net.layers.state_dict().keys():
         key = 'layers.' + key
         net.state_dict()[key] = pretrained[key]
 
-    x = torch.zeros((1, 3, 256, 384))
+    torch.save(net.state_dict(), 'model/model')
+
+    x = torch.zeros((1, 3, 512, 512))
 
     st = time.time()
     with torch.no_grad():

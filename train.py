@@ -25,7 +25,7 @@ class LossFunction:
         obj_loss = self._calc_obj_loss(x, target)
         bbox_loss = self._calc_bbox_loss(x, target)
 
-        loss = obj_loss + 0.5 * bbox_loss
+        loss = obj_loss + 0.01*bbox_loss
 
         return loss / batchsize
 

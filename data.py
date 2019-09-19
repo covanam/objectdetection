@@ -205,12 +205,12 @@ class Dataset(torch.utils.data.Dataset):
     @staticmethod
     def __im_path(im_name):
         """ construct full image directory """
-        return 'VOC2012/JPEGImages/' + im_name + '.jpg'
+        return 'VOC2007+2012/JPEGImages/' + im_name + '.jpg'
 
     @staticmethod
     def __xml_path(im_name):
         """ construct full xml directory """
-        return 'VOC2012/Annotations/' + im_name + '.xml'
+        return 'VOC2007+2012/Annotations/' + im_name + '.xml'
 
     @staticmethod
     def __xml_parse(xml_dir):
@@ -442,11 +442,11 @@ def _test():
         'person',
         'sheep'
     )
-    dataset = Dataset('VOC2012/ImageSets/Main/test.txt', data_arg=True)
+    dataset = Dataset('VOC2007+2012/ImageSets/Main/train.txt', data_arg=True)
 
     tdataset = TensorDataset(dataset)
 
-    im, out = tdataset[0]
+    im, out = tdataset[1760]
     im = torchvision.transforms.ToPILImage()(im)
 
     draw = ImageDraw.Draw(im)
