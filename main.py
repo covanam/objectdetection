@@ -6,9 +6,9 @@ import winsound
 import matplotlib.pyplot as plt
 
 # setting ---------------------------------------------------
-learning_rate = 1e-5
+learning_rate = 1e-3
 num_epoch = 10
-batch_size = 20
+batch_size = 16
 
 device = torch.device('cuda')
 
@@ -25,7 +25,7 @@ if __name__ == '__main__':
     val_dataset = data.TensorDataset(voc2012_val_dataset)
 
     # training setup--------------------------------------------------------------------------------------
-    optim = torch.optim.SGD(net.parameters(), lr=learning_rate, momentum=0.99)
+    optim = torch.optim.SGD(net.parameters(), lr=learning_rate, momentum=0.9)
 
     solv = train.Solver(
         model=net,
