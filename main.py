@@ -7,15 +7,15 @@ import matplotlib.pyplot as plt
 
 # setting ---------------------------------------------------
 learning_rate = 1e-3
-num_epoch = 10
-batch_size = 16
+num_epoch = 20
+batch_size = 18
 
 device = torch.device('cuda')
 
 if __name__ == '__main__':
     # network -------------------------------------------------------------------
     net = model.MyNet()
-    net.load_state_dict(torch.load('model/model'))
+    net.load_state_dict(torch.load('model/model.pth'))
 
     # dataset----------------------------------------------------------------------------------
     voc2012_train_dataset = data.Dataset('VOC2007+2012/ImageSets/Main/train.txt', data_arg=True)
@@ -40,7 +40,7 @@ if __name__ == '__main__':
         device=device
     )
 
-    torch.save(net.state_dict(), 'model/model')
+    torch.save(net.state_dict(), 'model/model.pth')
 
     for i in range(1, 10):
         winsound.Beep(i * 100, 200)
